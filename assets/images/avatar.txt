@@ -1,0 +1,4 @@
+This is a placeholder file.
+
+You need to add a real avatar image here named 'avatar.png' for the user profile. 
+The image should be a square profile picture. 
