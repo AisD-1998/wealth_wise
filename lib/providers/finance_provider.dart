@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
-import 'package:wealth_wise/models/spending_category.dart';
-import 'package:wealth_wise/models/transaction.dart';
+import 'package:wealth_wise/models/transaction.dart' as app_model;
 import 'package:wealth_wise/services/database_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:logging/logging.dart';
+import 'package:wealth_wise/models/category.dart' as app_category;
 
 enum TimeFrame { day, week, month, year, all }
 
@@ -48,6 +50,10 @@ extension TimeFrameExtension on TimeFrame {
 
 class FinanceProvider with ChangeNotifier {
   final DatabaseService _databaseService = DatabaseService();
+  final Logger _logger = Logger('FinanceProvider');
+
+  // Add userId field
+  String? _userId;
 
   // State variables
   bool _isLoading = false;
@@ -55,22 +61,21 @@ class FinanceProvider with ChangeNotifier {
   TimeFrame _selectedTimeframe = TimeFrame.month;
 
   // Data
-  List<Transaction> _transactions = [];
+  List<app_model.Transaction> _transactions = [];
   List<SavingGoal> _savingGoals = [];
-  List<SpendingCategory> _categories = [];
-  Map<String, dynamic> _financialSummary = {};
+  List<app_category.Category> _categories = [];
+  final Map<String, dynamic> _financialSummary = {};
 
   // Getters
   bool get isLoading => _isLoading;
   String? get error => _error;
   TimeFrame get selectedTimeframe => _selectedTimeframe;
-  List<Transaction> get transactions => _transactions;
+  List<app_model.Transaction> get transactions => _transactions;
   List<SavingGoal> get savingGoals => _savingGoals;
-  List<SpendingCategory> get categories => _categories;
+  List<app_category.Category> get categories => _categories;
   Map<String, dynamic> get financialSummary => _financialSummary;
 
   // Aliases and additional getters
-  List<SpendingCategory> get spendingCategories => _categories;
   double get totalBalance => totalIncome - totalExpense;
   double get totalExpenses => totalExpense;
 
@@ -87,7 +92,7 @@ class FinanceProvider with ChangeNotifier {
   // Get daily average spending
   double get dailyAverageSpending {
     final expenses = filteredTransactions
-        .where((t) => t.type == TransactionType.expense)
+        .where((t) => t.type == app_model.TransactionType.expense)
         .toList();
 
     if (expenses.isEmpty) return 0;
@@ -101,9 +106,9 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Get the largest expense
-  Transaction? get largestExpense {
+  app_model.Transaction? get largestExpense {
     final expenses = filteredTransactions
-        .where((t) => t.type == TransactionType.expense)
+        .where((t) => t.type == app_model.TransactionType.expense)
         .toList();
 
     if (expenses.isEmpty) return null;
@@ -113,7 +118,7 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Filtered transactions based on timeframe
-  List<Transaction> get filteredTransactions {
+  List<app_model.Transaction> get filteredTransactions {
     final start = _selectedTimeframe.startDate;
     final end = _selectedTimeframe.endDate;
 
@@ -126,14 +131,16 @@ class FinanceProvider with ChangeNotifier {
   // Income and expense totals for the selected timeframe
   double get totalIncome {
     return filteredTransactions
-        .where((t) => t.type == TransactionType.income)
-        .fold(0, (sum, t) => sum + t.amount);
+        .where((t) =>
+            t.type == app_model.TransactionType.income && t.includedInTotals)
+        .fold(0, (sumincome, item) => sumincome + item.amount);
   }
 
   double get totalExpense {
     return filteredTransactions
-        .where((t) => t.type == TransactionType.expense)
-        .fold(0, (sum, t) => sum + t.amount);
+        .where((t) =>
+            t.type == app_model.TransactionType.expense && t.includedInTotals)
+        .fold(0, (sumexpense, item) => sumexpense + item.amount);
   }
 
   double get balance => totalIncome - totalExpense;
@@ -143,7 +150,8 @@ class FinanceProvider with ChangeNotifier {
     final Map<String, double> result = {};
 
     for (var transaction in filteredTransactions) {
-      if (transaction.type == TransactionType.expense) {
+      if (transaction.type == app_model.TransactionType.expense &&
+          transaction.includedInTotals) {
         final category = transaction.category ?? 'Uncategorized';
         if (result.containsKey(category)) {
           result[category] = result[category]! + transaction.amount;
@@ -157,10 +165,31 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Recent transactions
-  List<Transaction> get recentTransactions {
-    final sorted = List<Transaction>.from(_transactions)
+  List<app_model.Transaction> get recentTransactions {
+    final sorted = List<app_model.Transaction>.from(_transactions)
       ..sort((a, b) => b.date.compareTo(a.date));
     return sorted.take(10).toList();
+  }
+
+  // Get transactions by category
+  Map<String, double> get expensesByCategory {
+    final expenses = filteredTransactions
+        .where((t) =>
+            t.type == app_model.TransactionType.expense && t.includedInTotals)
+        .toList();
+
+    final Map<String, double> result = {};
+
+    for (var transaction in expenses) {
+      final category = transaction.category ?? 'Uncategorized';
+      if (result.containsKey(category)) {
+        result[category] = result[category]! + transaction.amount;
+      } else {
+        result[category] = transaction.amount;
+      }
+    }
+
+    return result;
   }
 
   // Methods to change state
@@ -171,27 +200,19 @@ class FinanceProvider with ChangeNotifier {
 
   // Initialize data for a user
   Future<void> initializeFinanceData(String userId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    if (userId.isEmpty) {
+      return;
+    }
 
     try {
-      // Load transactions, saving goals, and categories
-      await Future.wait([
-        loadTransactions(userId),
-        loadSavingGoals(userId),
-        loadCategories(userId),
-      ]);
-
-      await loadFinancialSummary(userId);
-
-      _error = null;
-    } catch (e) {
-      _error = e.toString();
-      debugPrint('Error initializing finance data: $_error');
-    } finally {
-      _isLoading = false;
+      _userId = userId;
+      await fetchTransactions();
+      await fetchSpendingCategories();
+      await fetchSavingGoals();
       notifyListeners();
+    } catch (e) {
+      // Log error but don't crash
+      _logger.warning('Error initializing finance data: $e');
     }
   }
 
@@ -201,107 +222,197 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Load transactions
-  Future<void> loadTransactions(String userId) async {
+  Future<void> fetchTransactions() async {
+    if (_userId == null || _userId!.isEmpty) {
+      _logger.warning('Cannot fetch transactions: userId is empty');
+      return;
+    }
+
     try {
-      _transactions = await _databaseService.getTransactions(userId);
+      _logger.info('Fetching transactions for user: $_userId');
+
+      // Direct Firestore query with more detailed error handling
+      try {
+        final collection =
+            FirebaseFirestore.instance.collection('transactions');
+        _logger.info('Collection reference created: ${collection.path}');
+
+        // Check if collection exists
+        final collectionSnapshot = await collection.limit(1).get();
+        _logger
+            .info('Collection exists: ${collectionSnapshot.docs.isNotEmpty}');
+
+        // Perform query with fewer constraints initially
+        final snapshot =
+            await collection.where('userId', isEqualTo: _userId).get();
+
+        _logger.info(
+            'Retrieved ${snapshot.docs.length} transactions from database');
+
+        // Log individual documents for debugging
+        for (var doc in snapshot.docs) {
+          _logger.info('Document ID: ${doc.id}, Data: ${doc.data()}');
+        }
+
+        // Convert to transaction objects with careful error handling
+        _transactions = [];
+        for (var doc in snapshot.docs) {
+          try {
+            final data = doc.data();
+            // Validate date field format before conversion
+            if (data['date'] is Timestamp) {
+              final transaction = app_model.Transaction.fromMap(data, doc.id);
+              _transactions.add(transaction);
+            } else {
+              _logger.warning(
+                  'Document ${doc.id} has invalid date format: ${data['date']}');
+            }
+          } catch (docError) {
+            _logger.warning('Error parsing document ${doc.id}: $docError');
+          }
+        }
+
+        // Sort transactions by date (newest first)
+        _transactions.sort((a, b) => b.date.compareTo(a.date));
+
+        // Debug logging
+        if (_transactions.isEmpty) {
+          _logger.warning('No valid transactions found for user: $_userId');
+        } else {
+          _logger.info(
+              'Successfully loaded ${_transactions.length} valid transactions');
+        }
+      } catch (firestoreError) {
+        _logger.severe('Firestore query error: $firestoreError');
+        rethrow;
+      }
+
       notifyListeners();
     } catch (e) {
-      _error = e.toString();
-      debugPrint('Error loading transactions: $_error');
+      _logger.warning('Error fetching transactions: $e');
+      // Don't throw - just log and keep empty list
+      _transactions = [];
+      notifyListeners();
     }
   }
 
   // Add a transaction
-  Future<bool> addTransaction(Transaction transaction) async {
+  Future<bool> addTransaction(app_model.Transaction transaction) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final newTransaction = await _databaseService.addTransaction(transaction);
+      await _databaseService.addTransaction(transaction);
 
-      _transactions.add(newTransaction);
-      await loadFinancialSummary(transaction.userId);
+      // Update category spent amount if it's an expense with a category
+      if (transaction.type == app_model.TransactionType.expense &&
+          transaction.category != null &&
+          transaction.category!.isNotEmpty) {
+        // This will be handled by the database service's _updateCategorySpent method
+        // which is called within addTransaction
+      }
+
+      await fetchTransactions();
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error adding transaction: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
     }
   }
 
-  // Update a transaction
-  Future<bool> updateTransaction(Transaction transaction) async {
+  /// Updates an existing transaction
+  Future<bool> updateTransaction(app_model.Transaction transaction) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final success = await _databaseService.updateTransaction(transaction);
+      _logger.info('Updating transaction: ${transaction.id}');
 
-      if (success) {
-        // Replace the old transaction in the list
-        final index = _transactions.indexWhere((t) => t.id == transaction.id);
-        if (index >= 0) {
-          _transactions[index] = transaction;
-        }
-
-        await loadFinancialSummary(transaction.userId);
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      }
-
-      _error = 'Failed to update transaction';
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    } catch (e) {
-      _error = e.toString();
-      debugPrint('Error updating transaction: $_error');
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Delete a transaction
-  Future<bool> deleteTransaction(Transaction transaction) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      if (transaction.id == null) {
-        _error = 'Transaction ID is required for deletion';
+      if (transaction.id == null || transaction.id!.isEmpty) {
+        _error = 'Transaction ID is required for update';
+        _logger.warning(_error!);
         _isLoading = false;
         notifyListeners();
         return false;
       }
 
-      final success = await _databaseService.deleteTransaction(transaction.id!);
+      // Update in Firestore
+      final success = await _databaseService.updateTransaction(transaction);
 
-      if (success) {
-        // Remove the transaction from the list
-        _transactions.removeWhere((t) => t.id == transaction.id);
-
-        await loadFinancialSummary(transaction.userId);
+      if (!success) {
+        _error = 'Failed to update transaction in database';
         _isLoading = false;
         notifyListeners();
-        return true;
+        return false;
       }
 
-      _error = 'Failed to delete transaction';
+      // Re-fetch the transactions to ensure everything is in sync
+      await fetchTransactions();
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'Failed to update transaction: $e';
+      _logger.severe(_error);
       _isLoading = false;
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Deletes a transaction
+  Future<bool> deleteTransaction(app_model.Transaction transaction) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      _logger.info('Deleting transaction: ${transaction.id}');
+
+      if (transaction.id == null || transaction.id!.isEmpty) {
+        _error = 'Transaction ID is required for deletion';
+        _logger.warning(_error!);
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      // First remove the transaction from the local list to update UI immediately
+      _transactions.removeWhere((t) => t.id == transaction.id);
+      notifyListeners();
+
+      // Then delete from Firestore
+      final success = await _databaseService.deleteTransaction(transaction.id!);
+
+      if (!success) {
+        _error = 'Failed to delete transaction from database';
+        // If Firestore delete failed, re-fetch to restore the correct state
+        await fetchTransactions();
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      _logger.info('Successfully deleted transaction: ${transaction.id}');
+
+      // Re-fetch the transactions to ensure everything is in sync
+      await fetchTransactions();
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
     } catch (e) {
-      _error = e.toString();
-      debugPrint('Error deleting transaction: $_error');
+      _error = 'Failed to delete transaction: $e';
+      _logger.severe(_error);
+      // Re-fetch to ensure UI is in sync
+      await fetchTransactions();
       _isLoading = false;
       notifyListeners();
       return false;
@@ -309,13 +420,18 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Load saving goals
-  Future<void> loadSavingGoals(String userId) async {
+  Future<void> fetchSavingGoals() async {
+    if (_userId == null || _userId!.isEmpty) {
+      return;
+    }
+
     try {
-      _savingGoals = await _databaseService.getSavingGoals(userId);
+      _savingGoals = await _databaseService.getSavingGoals(_userId!);
       notifyListeners();
     } catch (e) {
-      _error = e.toString();
-      debugPrint('Error loading saving goals: $_error');
+      _logger.warning('Error fetching saving goals: $e');
+      // Don't throw - just log and keep empty list
+      _savingGoals = [];
     }
   }
 
@@ -421,14 +537,15 @@ class FinanceProvider with ChangeNotifier {
 
     try {
       // Create a transaction for the contribution
-      final transaction = Transaction(
+      final transaction = app_model.Transaction(
           userId: goal.userId,
           title: 'Contribution to ${goal.title}',
           amount: amount,
           date: DateTime.now(),
-          type: TransactionType.expense,
+          type: app_model.TransactionType.expense,
           category: 'Savings',
-          note: 'Contribution to saving goal');
+          note: 'Contribution to saving goal',
+          contributesToGoal: true);
 
       // Add the transaction
       await _databaseService.addTransaction(transaction);
@@ -440,10 +557,10 @@ class FinanceProvider with ChangeNotifier {
       final success = await _databaseService.updateSavingGoal(updatedGoal);
 
       if (success) {
-        // Refresh data
-        await loadSavingGoals(goal.userId);
-        await loadTransactions(goal.userId);
-        await loadFinancialSummary(goal.userId);
+        // Use new fetch methods instead of old load methods
+        _userId = goal.userId;
+        await fetchSavingGoals();
+        await fetchTransactions();
 
         _isLoading = false;
         notifyListeners();
@@ -464,24 +581,29 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Load spending categories
-  Future<void> loadCategories(String userId) async {
+  Future<void> fetchSpendingCategories() async {
+    if (_userId == null || _userId!.isEmpty) {
+      return;
+    }
+
     try {
-      _categories = await _databaseService.getSpendingCategories(userId);
+      _categories = await _databaseService.getCategories(_userId!);
       notifyListeners();
     } catch (e) {
-      _error = e.toString();
-      debugPrint('Error loading categories: $_error');
+      _logger.warning('Error fetching categories: $e');
+      // Don't throw - just log and keep empty list
+      _categories = [];
     }
   }
 
-  // Add a spending category
-  Future<bool> addCategory(SpendingCategory category) async {
+  // Add a category
+  Future<bool> addCategory(app_category.Category category) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final newCategory = await _databaseService.addSpendingCategory(category);
+      final newCategory = await _databaseService.addCategory(category);
 
       _categories.add(newCategory);
       _isLoading = false;
@@ -496,14 +618,14 @@ class FinanceProvider with ChangeNotifier {
     }
   }
 
-  // Update a spending category
-  Future<bool> updateCategory(SpendingCategory category) async {
+  // Update a category
+  Future<bool> updateCategory(app_category.Category category) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final success = await _databaseService.updateSpendingCategory(category);
+      final success = await _databaseService.updateCategory(category);
 
       if (success) {
         // Replace the old category in the list
@@ -530,22 +652,21 @@ class FinanceProvider with ChangeNotifier {
     }
   }
 
-  // Delete a spending category
-  Future<bool> deleteCategory(SpendingCategory category) async {
+  // Delete a category
+  Future<bool> deleteCategory(app_category.Category category) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      if (category.id == null) {
+      if (category.id.isEmpty) {
         _error = 'Category ID is required for deletion';
         _isLoading = false;
         notifyListeners();
         return false;
       }
 
-      final success =
-          await _databaseService.deleteSpendingCategory(category.id!);
+      final success = await _databaseService.deleteCategory(category.id);
 
       if (success) {
         // Remove the category from the list
@@ -571,98 +692,15 @@ class FinanceProvider with ChangeNotifier {
 
   // Load financial summary
   Future<void> loadFinancialSummary(String userId) async {
+    if (userId.isEmpty) return;
+
+    _userId = userId;
     try {
-      // Get current date and previous month
-      final now = DateTime.now();
-      final currentMonthStart = DateTime(now.year, now.month, 1);
-      final previousMonthStart = DateTime(
-          now.month > 1 ? now.year : now.year - 1,
-          now.month > 1 ? now.month - 1 : 12,
-          1);
-      final previousMonthEnd =
-          currentMonthStart.subtract(const Duration(days: 1));
-
-      // Get transactions for current and previous month
-      final currentMonthTransactions = await _databaseService
-          .getTransactions(userId, startDate: currentMonthStart, endDate: now);
-
-      final previousMonthTransactions = await _databaseService.getTransactions(
-          userId,
-          startDate: previousMonthStart,
-          endDate: previousMonthEnd);
-
-      // Calculate income and expenses for current month
-      double currentIncome = 0;
-      double currentExpenses = 0;
-
-      for (var transaction in currentMonthTransactions) {
-        if (transaction.type == TransactionType.income) {
-          currentIncome += transaction.amount;
-        } else {
-          currentExpenses += transaction.amount;
-        }
-      }
-
-      // Calculate income and expenses for previous month
-      double previousIncome = 0;
-      double previousExpenses = 0;
-
-      for (var transaction in previousMonthTransactions) {
-        if (transaction.type == TransactionType.income) {
-          previousIncome += transaction.amount;
-        } else {
-          previousExpenses += transaction.amount;
-        }
-      }
-
-      // Calculate changes compared to previous month
-      final incomeChange = previousIncome != 0
-          ? ((currentIncome - previousIncome) / previousIncome) * 100
-          : 0;
-
-      final expensesChange = previousExpenses != 0
-          ? ((currentExpenses - previousExpenses) / previousExpenses) * 100
-          : 0;
-
-      // Get top spending categories for current month
-      final categorySpending = this.categorySpending;
-
-      // Sort categories by amount
-      final sortedCategories = categorySpending.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      // Get top 3 categories or less if there are fewer categories
-      final topCategories = sortedCategories.take(3).map((entry) {
-        return {
-          'category': entry.key,
-          'amount': entry.value,
-          'percentage':
-              currentExpenses > 0 ? (entry.value / currentExpenses) * 100 : 0,
-        };
-      }).toList();
-
-      _financialSummary = {
-        'currentMonth': {
-          'income': currentIncome,
-          'expenses': currentExpenses,
-          'balance': currentIncome - currentExpenses,
-        },
-        'previousMonth': {
-          'income': previousIncome,
-          'expenses': previousExpenses,
-          'balance': previousIncome - previousExpenses,
-        },
-        'changes': {
-          'income': incomeChange,
-          'expenses': expensesChange,
-        },
-        'topCategories': topCategories,
-      };
-
-      notifyListeners();
+      await fetchTransactions();
+      await fetchSavingGoals();
+      await fetchSpendingCategories();
     } catch (e) {
-      _error = e.toString();
-      debugPrint('Error loading financial summary: $_error');
+      _logger.warning('Error loading financial summary: $e');
     }
   }
 
@@ -670,5 +708,18 @@ class FinanceProvider with ChangeNotifier {
   void resetError() {
     _error = null;
     notifyListeners();
+  }
+
+  // Update financial summary
+  Future<void> updateFinancialSummary() async {
+    if (_userId == null || _userId!.isEmpty) return;
+
+    try {
+      await fetchTransactions();
+      await fetchSavingGoals();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error updating financial summary: $e');
+    }
   }
 }

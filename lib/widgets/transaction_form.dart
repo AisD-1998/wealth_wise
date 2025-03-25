@@ -3,8 +3,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/models/transaction.dart';
+import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
+import 'package:wealth_wise/providers/category_provider.dart';
+import 'package:wealth_wise/utils/ui_helpers.dart';
 
 class TransactionForm extends StatefulWidget {
   final Transaction? transaction;
@@ -32,6 +35,8 @@ class _TransactionFormState extends State<TransactionForm> {
   String? _selectedCategory;
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
+  bool _saveToSavingsGoal = false;
+  SavingGoal? _selectedSavingGoal;
 
   @override
   void initState() {
@@ -57,6 +62,16 @@ class _TransactionFormState extends State<TransactionForm> {
     } else if (widget.initialType != null) {
       _selectedType = widget.initialType!;
     }
+
+    // Force a re-fetch of categories to ensure we have the latest data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final categoryProvider =
+          Provider.of<CategoryProvider>(context, listen: false);
+      if (authProvider.user != null) {
+        categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
+      }
+    });
   }
 
   @override
@@ -68,31 +83,55 @@ class _TransactionFormState extends State<TransactionForm> {
   }
 
   Future<void> _saveTransaction() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
     setState(() => _isLoading = true);
 
-    final userId =
-        Provider.of<AuthProvider>(context, listen: false).firebaseUser?.uid;
-    if (userId == null) {
-      _showError('User not authenticated');
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    if (amount <= 0) {
-      _showError('Amount must be greater than 0');
-      setState(() => _isLoading = false);
-      return;
-    }
-
     try {
+      final userId = context.read<AuthProvider>().user?.uid;
+      if (userId == null) {
+        _showError('User ID not found. Please log in.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
       final financeProvider =
           Provider.of<FinanceProvider>(context, listen: false);
-      bool success;
 
-      // Create or update transaction
+      // Also make sure we have access to the category provider
+      final categoryProvider =
+          Provider.of<CategoryProvider>(context, listen: false);
+
+      // Check if category provider has loaded categories
+      if (categoryProvider.categories.isEmpty) {
+        await categoryProvider.loadCategoriesByUser(userId);
+      }
+
+      if (!mounted) return;
+
+      final double amount = double.parse(_amountController.text);
+      bool success = false;
+
+      // Log current values for debugging
+      debugPrint('Transaction form - saving with category: $_selectedCategory');
+
+      // Cleanup category value - make sure it's not ID but name
+      if (_selectedCategory != null) {
+        _selectedCategory = _selectedCategory!.trim();
+
+        // If category doesn't exist in available categories, set to "Other"
+        final availableCategories =
+            categoryProvider.categories.map((cat) => cat.name).toSet().toList();
+
+        if (!availableCategories.contains(_selectedCategory)) {
+          debugPrint(
+              'Category not found in available categories, using "Other" instead');
+          _selectedCategory = "Other";
+        }
+      }
+
       if (widget.transaction == null) {
         // Create new transaction
         final newTransaction = Transaction(
@@ -103,9 +142,19 @@ class _TransactionFormState extends State<TransactionForm> {
           type: _selectedType,
           category: _selectedCategory,
           note: _noteController.text.trim(),
+          contributesToGoal: _saveToSavingsGoal,
         );
 
         success = await financeProvider.addTransaction(newTransaction);
+
+        // If this is a saving goal contribution, update the saving goal too
+        if (success &&
+            _saveToSavingsGoal &&
+            _selectedSavingGoal != null &&
+            _selectedType == TransactionType.expense) {
+          await financeProvider.contributeSavingGoal(
+              _selectedSavingGoal!, amount);
+        }
       } else {
         // Update existing transaction
         final updatedTransaction = widget.transaction!.copyWith(
@@ -121,6 +170,13 @@ class _TransactionFormState extends State<TransactionForm> {
       }
 
       if (success) {
+        // Refresh the categories after transaction is saved to update spent amounts
+        if (_selectedType == TransactionType.expense &&
+            _selectedCategory != null &&
+            _selectedCategory!.isNotEmpty) {
+          await categoryProvider.loadCategoriesByUser(userId);
+        }
+
         if (widget.onComplete != null) {
           widget.onComplete!(true);
         }
@@ -169,193 +225,246 @@ class _TransactionFormState extends State<TransactionForm> {
 
   @override
   Widget build(BuildContext context) {
-    final categories = Provider.of<FinanceProvider>(context).categories;
-    final categoryNames = categories.map((c) => c.name).toList();
+    final theme = Theme.of(context);
+    final financeProvider = Provider.of<FinanceProvider>(context);
+    final savingGoals = financeProvider.savingGoals;
 
-    // Add an "Other" category if it doesn't exist
-    if (!categoryNames.contains('Other')) {
-      categoryNames.add('Other');
+    // Get valid categories
+    final availableCategories = financeProvider.categories
+        .map((category) => category.name)
+        .toSet()
+        .toList();
+
+    // Make sure _selectedCategory is valid
+    if (_selectedCategory != null &&
+        !availableCategories.contains(_selectedCategory)) {
+      _selectedCategory = null;
     }
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(widget.transaction == null
-            ? 'Add Transaction'
-            : 'Edit Transaction'),
+        title: Text(
+          widget.transaction != null
+              ? 'Edit Transaction'
+              : 'Add ${_selectedType == TransactionType.income ? 'Income' : 'Expense'}',
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _isLoading ? null : _saveTransaction,
-          ),
+          if (_selectedType == TransactionType.expense &&
+              savingGoals.isNotEmpty &&
+              widget.transaction == null)
+            TextButton.icon(
+              onPressed: () async {
+                final selectedGoal = await UIHelpers.showSavingGoalSelector(
+                  context,
+                  savingGoals,
+                );
+
+                if (selectedGoal != null && mounted) {
+                  setState(() {
+                    _titleController.text =
+                        'Contribution to ${selectedGoal.title}';
+                    _selectedCategory = 'Savings';
+                    _saveToSavingsGoal = true;
+                    _selectedSavingGoal = selectedGoal;
+                  });
+                }
+              },
+              icon: const Icon(Icons.savings, size: 18),
+              label: const Text('Saving Goal'),
+            ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Transaction Type Selector
-                    Card(
-                      margin: const EdgeInsets.only(bottom: 16.0),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => setState(() {
-                                  _selectedType = TransactionType.income;
-                                }),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      _selectedType == TransactionType.income
-                                          ? Colors.green
-                                          : Colors.grey[300],
-                                  foregroundColor:
-                                      _selectedType == TransactionType.income
-                                          ? Colors.white
-                                          : Colors.black,
-                                ),
-                                child: const Text('Income'),
-                              ),
-                            ),
-                            const SizedBox(width: 8.0),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => setState(() {
-                                  _selectedType = TransactionType.expense;
-                                }),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      _selectedType == TransactionType.expense
-                                          ? Colors.red
-                                          : Colors.grey[300],
-                                  foregroundColor:
-                                      _selectedType == TransactionType.expense
-                                          ? Colors.white
-                                          : Colors.black,
-                                ),
-                                child: const Text('Expense'),
-                              ),
-                            ),
-                          ],
-                        ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Type Selector
+                Center(
+                  child: SegmentedButton<TransactionType>(
+                    segments: const [
+                      ButtonSegment<TransactionType>(
+                        value: TransactionType.income,
+                        label: Text('Income'),
+                        icon: Icon(Icons.arrow_upward),
                       ),
-                    ),
-
-                    // Title Field
-                    TextFormField(
-                      controller: _titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Title',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.title),
+                      ButtonSegment<TransactionType>(
+                        value: TransactionType.expense,
+                        label: Text('Expense'),
+                        icon: Icon(Icons.arrow_downward),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please enter a title';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16.0),
-
-                    // Amount Field
-                    TextFormField(
-                      controller: _amountController,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.attach_money),
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please enter an amount';
-                        }
-                        final amount = double.tryParse(value);
-                        if (amount == null || amount <= 0) {
-                          return 'Please enter a valid amount';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16.0),
-
-                    // Category Dropdown (only for expenses)
-                    if (_selectedType == TransactionType.expense)
-                      DropdownButtonFormField<String>(
-                        value: _selectedCategory,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.category),
-                        ),
-                        items: categoryNames
-                            .map((category) => DropdownMenuItem(
-                                  value: category,
-                                  child: Text(category),
-                                ))
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedCategory = value;
-                          });
-                        },
-                      ),
-                    if (_selectedType == TransactionType.expense)
-                      const SizedBox(height: 16.0),
-
-                    // Date Picker
-                    GestureDetector(
-                      onTap: _pickDate,
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Date',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.calendar_today),
-                        ),
-                        child: Text(
-                          DateFormat('MMM dd, yyyy').format(_selectedDate),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16.0),
-
-                    // Note Field
-                    TextFormField(
-                      controller: _noteController,
-                      decoration: const InputDecoration(
-                        labelText: 'Note (Optional)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.note),
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 24.0),
-
-                    // Save Button
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _saveTransaction,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                      ),
-                      child: Text(
-                        widget.transaction == null
-                            ? 'Add Transaction'
-                            : 'Update Transaction',
-                        style: const TextStyle(fontSize: 16.0),
-                      ),
-                    ),
-                  ],
+                    ],
+                    selected: {_selectedType},
+                    onSelectionChanged: (Set<TransactionType> selection) {
+                      setState(() {
+                        _selectedType = selection.first;
+                        // Reset category when changing type
+                        _selectedCategory = null;
+                      });
+                    },
+                  ),
                 ),
-              ),
+                const SizedBox(height: 24),
+
+                // Title
+                TextFormField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'What is this transaction for?',
+                    prefixIcon: Icon(Icons.subject),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a description';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Amount
+                TextFormField(
+                  controller: _amountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    hintText: 'Enter amount',
+                    prefixIcon: Icon(Icons.attach_money),
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter an amount';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Please enter a valid number';
+                    }
+                    if (double.parse(value) <= 0) {
+                      return 'Amount must be greater than 0';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Category
+                DropdownButtonFormField<String>(
+                  value: _selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    hintText: 'Select category',
+                    prefixIcon: Icon(Icons.category),
+                  ),
+                  items: availableCategories.isNotEmpty
+                      ? availableCategories.map((name) {
+                          return DropdownMenuItem<String>(
+                            value: name,
+                            child: Text(name),
+                          );
+                        }).toList()
+                      : _selectedType == TransactionType.income
+                          ? ['Salary', 'Investments', 'Gifts', 'Other Income']
+                              .map((name) => DropdownMenuItem<String>(
+                                    value: name,
+                                    child: Text(name),
+                                  ))
+                              .toList()
+                          : [
+                              'Food & Groceries',
+                              'Transportation',
+                              'Entertainment',
+                              'Utilities',
+                              'Housing',
+                              'Health',
+                              'Shopping',
+                              'Education',
+                              'Other'
+                            ]
+                              .map((name) => DropdownMenuItem<String>(
+                                    value: name,
+                                    child: Text(name),
+                                  ))
+                              .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCategory = value;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please select a category';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Date
+                InkWell(
+                  onTap: _pickDate,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Date',
+                      prefixIcon: Icon(Icons.calendar_today),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(DateFormat('MMM dd, yyyy').format(_selectedDate)),
+                        const Icon(Icons.arrow_drop_down),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Notes
+                TextFormField(
+                  controller: _noteController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (Optional)',
+                    hintText: 'Additional details',
+                    prefixIcon: Icon(Icons.note),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 24),
+
+                // Submit Button
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _isLoading ? null : _saveTransaction,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Text(
+                              widget.transaction == null
+                                  ? 'Add Transaction'
+                                  : 'Update Transaction',
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ),
+          ),
+        ),
+      ),
     );
   }
 }

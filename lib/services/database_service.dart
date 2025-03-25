@@ -3,13 +3,14 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:logging/logging.dart';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/material.dart';
 
 import 'package:wealth_wise/models/transaction.dart' as app_transaction;
 import 'package:wealth_wise/models/budget_model.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/models/user.dart' as app_user;
 import 'package:firebase_auth/firebase_auth.dart' as auth;
-import 'package:wealth_wise/models/spending_category.dart';
+import 'package:wealth_wise/models/category.dart';
 
 class DatabaseService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -26,8 +27,8 @@ class DatabaseService {
       FirebaseFirestore.instance.collection('budgets');
   final CollectionReference _savingsGoalsCollection =
       FirebaseFirestore.instance.collection('savingGoals');
-  final CollectionReference _spendingCategoriesCollection =
-      FirebaseFirestore.instance.collection('spendingCategories');
+  final CollectionReference _categoriesCollection =
+      FirebaseFirestore.instance.collection('categories');
 
   // Transactions
   Future<List<app_transaction.Transaction>> getTransactions(String userId,
@@ -104,17 +105,26 @@ class DatabaseService {
       final newId = _uuid.v4();
       final newTransaction = transaction.copyWith(id: newId);
 
-      await _transactionsCollection.doc(newId).set(newTransaction.toMap());
-
-      // Update budget if it's an expense
-      if (newTransaction.type == app_transaction.TransactionType.expense &&
-          newTransaction.category != null) {
-        await _updateBudgetSpent(
-          newTransaction.userId,
-          newTransaction.category,
-          newTransaction.amount,
-        );
+      // Validate transaction data before saving
+      if (newTransaction.userId.isEmpty) {
+        throw Exception('Transaction must have a userId');
       }
+
+      // Log transaction data for debugging
+      _logger.info('Adding transaction: ${newTransaction.toDebugString()}');
+      _logger.info('Transaction map data: ${newTransaction.toMap()}');
+
+      final transactionMap = newTransaction.toMap();
+
+      // Ensure date is a valid Timestamp
+      if (transactionMap['date'] is! Timestamp) {
+        transactionMap['date'] = Timestamp.fromDate(newTransaction.date);
+        _logger.info('Converted date to Timestamp: ${transactionMap['date']}');
+      }
+
+      // Set the document with validated data
+      await _transactionsCollection.doc(newId).set(transactionMap);
+      _logger.info('Transaction added successfully with ID: $newId');
 
       return newTransaction;
     } catch (e) {
@@ -123,105 +133,110 @@ class DatabaseService {
     }
   }
 
+  /// Update an existing transaction in the database
   Future<bool> updateTransaction(
       app_transaction.Transaction transaction) async {
+    if (transaction.id == null || transaction.id!.isEmpty) {
+      _logger.warning('Attempted to update transaction with empty ID');
+      return false;
+    }
+
     try {
-      if (transaction.id == null) {
+      final docRef = _transactionsCollection.doc(transaction.id);
+
+      // Get the existing transaction for comparison
+      final docSnapshot = await docRef.get();
+      if (!docSnapshot.exists) {
+        _logger.warning('Transaction not found: ${transaction.id}');
         return false;
       }
 
-      // Get the old transaction to update balances correctly
-      final docSnapshot =
-          await _transactionsCollection.doc(transaction.id).get();
-      if (docSnapshot.exists) {
-        final oldTransaction = app_transaction.Transaction.fromMap(
-            docSnapshot.data() as Map<String, dynamic>, transaction.id!);
+      // Verify category exists or use "Other"
+      String categoryValue = transaction.category ?? 'Other';
+      bool categoryExists = false;
 
-        // Revert the old transaction's effect on balance
-        await _updateUserBalance(
-            transaction.userId,
-            oldTransaction.copyWith(
-                amount: -oldTransaction.amount,
-                type: oldTransaction.type ==
-                        app_transaction.TransactionType.income
-                    ? app_transaction.TransactionType.expense
-                    : app_transaction.TransactionType.income));
+      try {
+        // Check if we're using a category name
+        final categorySnapshot = await _categoriesCollection
+            .where('name', isEqualTo: categoryValue)
+            .limit(1)
+            .get();
 
-        // Revert the old transaction's effect on category spent
-        if (oldTransaction.category != null &&
-            oldTransaction.type == app_transaction.TransactionType.expense) {
-          await _updateCategorySpent(oldTransaction.userId,
-              oldTransaction.category, -oldTransaction.amount);
+        if (categorySnapshot.docs.isNotEmpty) {
+          categoryExists = true;
         }
+      } catch (e) {
+        _logger.warning('Error checking category existence: $e');
       }
+
+      if (!categoryExists) {
+        _logger
+            .info('Category not found: $categoryValue, using "Other" instead');
+        categoryValue = 'Other';
+      }
+
+      // Create a map specifically for the update to ensure correct data types
+      Map<String, dynamic> updateData = {
+        'title': transaction.title,
+        'amount': transaction.amount,
+        'date': Timestamp.fromDate(transaction.date),
+        'type': transaction.type == app_transaction.TransactionType.income
+            ? 'income'
+            : 'expense',
+        'category': categoryValue,
+        'userId': transaction.userId,
+        'note': transaction.note,
+        'updatedAt': Timestamp.now(),
+        'contributesToGoal': transaction.contributesToGoal,
+      };
 
       // Update the transaction in Firestore
-      await _transactionsCollection
-          .doc(transaction.id)
-          .update(transaction.toMap());
+      await docRef.update(updateData);
 
-      // Apply the new transaction's effect on balance
-      await _updateUserBalance(transaction.userId, transaction);
-
-      // Apply the new transaction's effect on category spent
-      if (transaction.category != null &&
-          transaction.type == app_transaction.TransactionType.expense) {
-        await _updateCategorySpent(
-            transaction.userId, transaction.category, transaction.amount);
-      }
-
+      _logger.info('Updated transaction: ${transaction.id}');
       return true;
     } catch (e) {
-      _logger.warning('Error updating transaction: $e');
+      _logger.severe('Error updating transaction: $e');
       return false;
     }
   }
 
+  /// Delete a transaction from the database
   Future<bool> deleteTransaction(String transactionId) async {
-    try {
-      // Get the transaction to handle budget updates
-      final doc = await _transactionsCollection.doc(transactionId).get();
-
-      if (doc.exists) {
-        final transaction = app_transaction.Transaction.fromMap(
-          doc.data() as Map<String, dynamic>,
-          doc.id,
-        );
-
-        // If it's an expense, update the budget
-        if (transaction.type == app_transaction.TransactionType.expense &&
-            transaction.category != null) {
-          await _updateBudgetSpent(
-            transaction.userId,
-            transaction.category,
-            -transaction.amount,
-          );
-        }
-
-        // Delete the transaction
-        await _transactionsCollection.doc(transactionId).delete();
-
-        // Update user balance (reverse the transaction effect)
-        await _updateUserBalance(
-            transaction.userId,
-            transaction.copyWith(
-                amount: -transaction.amount,
-                type: transaction.type == app_transaction.TransactionType.income
-                    ? app_transaction.TransactionType.expense
-                    : app_transaction.TransactionType.income));
-
-        // Update category spent if applicable
-        if (transaction.category != null &&
-            transaction.type == app_transaction.TransactionType.expense) {
-          await _updateCategorySpent(
-              transaction.userId, transaction.category, -transaction.amount);
-        }
-
-        return true;
-      }
+    if (transactionId.isEmpty) {
+      _logger.warning('Attempted to delete transaction with empty ID');
       return false;
+    }
+
+    try {
+      final docRef = _transactionsCollection.doc(transactionId);
+
+      // Get the transaction before deleting it to make sure it exists
+      final docSnapshot = await docRef.get();
+      if (!docSnapshot.exists) {
+        _logger.warning('Transaction not found: $transactionId');
+        return false;
+      }
+
+      // Log transaction data before deletion for debugging
+      _logger.info(
+          'Deleting transaction: $transactionId with data: ${docSnapshot.data()}');
+
+      // Delete the transaction
+      await docRef.delete();
+
+      // Verify deletion
+      final verifySnapshot = await docRef.get();
+      if (verifySnapshot.exists) {
+        _logger.warning(
+            'Failed to delete transaction: $transactionId - document still exists');
+        return false;
+      }
+
+      _logger.info('Successfully deleted transaction: $transactionId');
+      return true;
     } catch (e) {
-      _logger.warning('Error deleting transaction: $e');
+      _logger.severe('Error deleting transaction: $e');
       return false;
     }
   }
@@ -334,44 +349,6 @@ class DatabaseService {
     } catch (e) {
       _logger.warning('Error deleting budget: $e');
       rethrow;
-    }
-  }
-
-  Future<void> _updateBudgetSpent(
-    String userId,
-    String? category,
-    double amount,
-  ) async {
-    if (category == null) return;
-
-    try {
-      // Get the current month's budget for this category
-      DateTime now = DateTime.now();
-      int year = now.year;
-      int month = now.month;
-
-      final query = await _budgetsCollection
-          .where('userId', isEqualTo: userId)
-          .where('category', isEqualTo: category)
-          .where('year', isEqualTo: year)
-          .where('month', isEqualTo: month)
-          .limit(1)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        DocumentSnapshot doc = query.docs.first;
-        Budget budget = Budget.fromMap(doc.data() as Map<String, dynamic>);
-        double newSpent = budget.spent + amount;
-
-        if (newSpent < 0) newSpent = 0;
-
-        await _budgetsCollection.doc(doc.id).update({
-          'spent': newSpent,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (e) {
-      _logger.warning('Error updating budget spent: $e');
     }
   }
 
@@ -516,258 +493,195 @@ class DatabaseService {
   // Update user data
   Future<void> updateUserData(app_user.User user) async {
     try {
-      await _usersCollection.doc(user.uid).update(user.toMap());
+      // Check if the document exists first
+      final doc = await _usersCollection.doc(user.uid).get();
+
+      if (doc.exists) {
+        // Update existing document
+        await _usersCollection.doc(user.uid).update(user.toMap());
+      } else {
+        // Create new document if it doesn't exist
+        await _usersCollection.doc(user.uid).set(user.toMap());
+      }
     } catch (e) {
       _logger.warning('Error updating user data: $e');
     }
   }
 
-  // Get spending categories for a user
-  Future<List<SpendingCategory>> getSpendingCategories(String userId) async {
+  // Get categories for a user
+  Future<List<Category>> getCategories(String userId) async {
     try {
-      final query = await _spendingCategoriesCollection
-          .where('userId', isEqualTo: userId)
-          .get();
+      final query =
+          await _categoriesCollection.where('userId', isEqualTo: userId).get();
 
-      return query.docs
-          .map((doc) => SpendingCategory.fromMap(
-                doc.data() as Map<String, dynamic>,
-                doc.id,
-              ))
-          .toList();
+      return query.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Add the id to the map if needed
+        data['id'] = doc.id;
+        return Category.fromMap(data);
+      }).toList();
     } catch (e) {
-      _logger.warning('Error getting spending categories: $e');
+      _logger.warning('Error getting categories: $e');
       return [];
     }
   }
 
-  // Add a spending category
-  Future<SpendingCategory> addSpendingCategory(
-      SpendingCategory category) async {
+  // Add a category
+  Future<Category> addCategory(Category category) async {
     try {
       final newId = _uuid.v4();
       final newCategory = category.copyWith(id: newId);
 
-      await _spendingCategoriesCollection.doc(newId).set(newCategory.toMap());
+      await _categoriesCollection.doc(newId).set(newCategory.toMap());
 
       return newCategory;
     } catch (e) {
-      _logger.warning('Error adding spending category: $e');
+      _logger.warning('Error adding category: $e');
       rethrow;
     }
   }
 
-  // Update a spending category
-  Future<bool> updateSpendingCategory(SpendingCategory category) async {
+  // Update a category
+  Future<bool> updateCategory(Category category) async {
     try {
-      if (category.id == null) {
+      if (category.id.isEmpty) {
         return false;
       }
 
-      await _spendingCategoriesCollection
-          .doc(category.id)
-          .update(category.toMap());
+      await _categoriesCollection.doc(category.id).update(category.toMap());
       return true;
     } catch (e) {
-      _logger.warning('Error updating spending category: $e');
+      _logger.warning('Error updating category: $e');
       return false;
     }
   }
 
-  // Delete a spending category
-  Future<bool> deleteSpendingCategory(String categoryId) async {
+  // Delete a category
+  Future<bool> deleteCategory(String categoryId) async {
     try {
-      await _spendingCategoriesCollection.doc(categoryId).delete();
-      return true;
-    } catch (e) {
-      _logger.warning('Error deleting spending category: $e');
-      return false;
-    }
-  }
-
-  // Helper method to update user balance
-  Future<void> _updateUserBalance(
-      String userId, app_transaction.Transaction transaction) async {
-    try {
-      final userData = await getUserData(userId);
-      if (userData == null) return;
-
-      double newBalance = userData.balance;
-
-      // Update balance based on transaction type
-      if (transaction.type == app_transaction.TransactionType.income) {
-        newBalance += transaction.amount;
-      } else {
-        newBalance -= transaction.amount;
+      // Check if the category is used in any transactions first
+      final categoryData = await _categoriesCollection.doc(categoryId).get();
+      if (!categoryData.exists) {
+        _logger.warning('Category not found: $categoryId');
+        return false;
       }
 
-      // Update the user's balance
-      await updateUserData(userData.copyWith(balance: newBalance));
+      final categoryName =
+          (categoryData.data() as Map<String, dynamic>)['name'] as String?;
+
+      if (categoryName != null) {
+        // Check if any transactions use this category name
+        final transactionsWithCategory = await _transactionsCollection
+            .where('category', isEqualTo: categoryName)
+            .limit(1)
+            .get();
+
+        if (transactionsWithCategory.docs.isNotEmpty) {
+          _logger.warning(
+              'Cannot delete category: $categoryId ($categoryName) - it is used in transactions');
+          return false;
+        }
+      }
+
+      await _categoriesCollection.doc(categoryId).delete();
+      return true;
     } catch (e) {
-      _logger.warning('Error updating user balance: $e');
+      _logger.warning('Error deleting category: $e');
+      return false;
     }
   }
 
-  // Helper method to update category spent amount
-  Future<void> _updateCategorySpent(
-      String userId, String? category, double amount) async {
-    try {
-      if (category == null) return;
-
-      // Get all categories for the user
-      final querySnapshot = await _spendingCategoriesCollection
-          .where('userId', isEqualTo: userId)
-          .where('name', isEqualTo: category)
-          .get();
-
-      if (querySnapshot.docs.isEmpty) return;
-
-      // Get the first matching category
-      final doc = querySnapshot.docs.first;
-      final categoryData =
-          SpendingCategory.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      // Update the spent amount
-      final updatedSpent = categoryData.spent + amount;
-      await _spendingCategoriesCollection.doc(doc.id).update({
-        'spent':
-            updatedSpent > 0 ? updatedSpent : 0, // Ensure spent is not negative
-      });
-    } catch (e) {
-      _logger.warning('Error updating category spent: $e');
-    }
-  }
-
-  // Database migrations
-  Future<void> runMigrations(String userId) async {
-    _logger.info('Running database migrations for user: $userId');
-
-    try {
-      // Create default spending categories if they don't exist
-      await _createDefaultCategories(userId);
-
-      // Initialize user's financial summary if it doesn't exist
-      await _createInitialSavingGoal(userId);
-
-      _logger.info('Database migrations completed successfully');
-    } catch (e) {
-      _logger.severe('Error running migrations: $e');
-      throw Exception('Failed to run database migrations: $e');
-    }
-  }
-
-  Future<void> _createDefaultCategories(String userId) async {
+  // Database initialization methods
+  Future<void> initializeDefaultCategories(String userId) async {
+    _logger.info('Initializing default categories for user: $userId');
     try {
       // Check if user already has categories
-      final existingCategories = await _spendingCategoriesCollection
+      final existingCategories = await FirebaseFirestore.instance
+          .collection('categories')
           .where('userId', isEqualTo: userId)
-          .limit(1)
           .get();
 
-      // If user already has categories, skip creation
       if (existingCategories.docs.isNotEmpty) {
-        _logger.info('User already has spending categories, skipping creation');
+        _logger.info(
+            'User already has ${existingCategories.docs.length} categories');
         return;
       }
 
-      // Default categories with their colors and icons
+      // Create default categories
+      _logger.info('Creating default categories for user');
       final defaultCategories = [
+        // Income categories
         {
-          'name': 'Food & Groceries',
-          'budgetLimit': 500.0,
-          'spent': 0.0,
-          'color': 0xFF4CAF50, // Green
+          'id': 'salary-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Salary',
+          'icon': 'attach_money',
+          'color': Colors.green.toARGB32(),
           'userId': userId,
-          'iconName': 'restaurant'
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
         },
         {
-          'name': 'Transport',
-          'budgetLimit': 300.0,
-          'spent': 0.0,
-          'color': 0xFF2196F3, // Blue
+          'id': 'investments-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Investments',
+          'icon': 'insert_chart',
+          'color': Colors.blue.toARGB32(),
           'userId': userId,
-          'iconName': 'directions_car'
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        // Expense categories
+        {
+          'id': 'food-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Food & Dining',
+          'icon': 'restaurant',
+          'color': Colors.orange.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
         },
         {
+          'id': 'housing-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Housing',
+          'icon': 'home',
+          'color': Colors.purple.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'id': 'transportation-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Transportation',
+          'icon': 'directions_car',
+          'color': Colors.red.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        },
+        {
+          'id': 'entertainment-${DateTime.now().millisecondsSinceEpoch}',
           'name': 'Entertainment',
-          'budgetLimit': 200.0,
-          'spent': 0.0,
-          'color': 0xFF9C27B0, // Purple
+          'icon': 'movie',
+          'color': Colors.amber.toARGB32(),
           'userId': userId,
-          'iconName': 'movie'
-        },
-        {
-          'name': 'Utilities',
-          'budgetLimit': 350.0,
-          'spent': 0.0,
-          'color': 0xFFFF9800, // Orange
-          'userId': userId,
-          'iconName': 'power'
-        },
-        {
-          'name': 'Health',
-          'budgetLimit': 250.0,
-          'spent': 0.0,
-          'color': 0xFFF44336, // Red
-          'userId': userId,
-          'iconName': 'medical_services'
-        },
-        {
-          'name': 'Other',
-          'budgetLimit': 400.0,
-          'spent': 0.0,
-          'color': 0xFF607D8B, // Blue Grey
-          'userId': userId,
-          'iconName': 'category'
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
         },
       ];
 
-      // Add each category to Firestore
+      // Add default categories to Firestore
       final batch = FirebaseFirestore.instance.batch();
-      for (var category in defaultCategories) {
-        final docRef = _spendingCategoriesCollection.doc();
+      for (final category in defaultCategories) {
+        final docRef = FirebaseFirestore.instance
+            .collection('categories')
+            .doc(category['id'] as String);
         batch.set(docRef, category);
       }
 
       await batch.commit();
-      _logger.info('Created default spending categories for user: $userId');
+      _logger.info('Default categories created successfully');
     } catch (e) {
-      _logger.warning('Error creating default categories: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> _createInitialSavingGoal(String userId) async {
-    try {
-      // Check if user already has any saving goals
-      final existingGoals = await _savingsGoalsCollection
-          .where('userId', isEqualTo: userId)
-          .limit(1)
-          .get();
-
-      // If user already has goals, skip creation
-      if (existingGoals.docs.isNotEmpty) {
-        _logger.info('User already has saving goals, skipping creation');
-        return;
-      }
-
-      // Create an initial saving goal as an example
-      final exampleGoal = {
-        'title': 'Emergency Fund',
-        'description': 'For unexpected expenses',
-        'targetAmount': 1000.0,
-        'currentAmount': 0.0,
-        'userId': userId,
-        'targetDate':
-            Timestamp.fromDate(DateTime.now().add(const Duration(days: 180))),
-        'createdDate': Timestamp.fromDate(DateTime.now()),
-      };
-
-      await _savingsGoalsCollection.add(exampleGoal);
-      _logger.info('Created initial saving goal for user: $userId');
-    } catch (e) {
-      _logger.warning('Error creating initial saving goal: $e');
-      rethrow;
+      _logger.severe('Error initializing default categories: $e');
+      throw Exception('Failed to initialize default categories: $e');
     }
   }
 }

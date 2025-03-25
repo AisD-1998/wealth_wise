@@ -30,12 +30,16 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reports'),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.calendar_today),
+            tooltip: 'Select timeframe',
             onSelected: (value) {
               setState(() {
                 _selectedTimeframe = value;
@@ -44,25 +48,57 @@ class _ReportsScreenState extends State<ReportsScreen>
             itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'Weekly',
-                child: Text('Weekly'),
+                child: Row(
+                  children: [
+                    Icon(Icons.view_week_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Weekly'),
+                  ],
+                ),
               ),
               const PopupMenuItem(
                 value: 'Monthly',
-                child: Text('Monthly'),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_month_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Monthly'),
+                  ],
+                ),
               ),
               const PopupMenuItem(
                 value: 'Yearly',
-                child: Text('Yearly'),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('Yearly'),
+                  ],
+                ),
               ),
             ],
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
+          labelColor: colorScheme.primary,
+          unselectedLabelColor: colorScheme.onSurfaceVariant,
+          indicatorColor: colorScheme.primary,
+          indicatorSize: TabBarIndicatorSize.label,
+          dividerColor: colorScheme.outlineVariant,
           tabs: const [
-            Tab(text: 'Overview'),
-            Tab(text: 'Income'),
-            Tab(text: 'Expenses'),
+            Tab(
+              icon: Icon(Icons.pie_chart_outline),
+              text: 'Overview',
+            ),
+            Tab(
+              icon: Icon(Icons.arrow_upward_outlined),
+              text: 'Income',
+            ),
+            Tab(
+              icon: Icon(Icons.arrow_downward_outlined),
+              text: 'Expenses',
+            ),
           ],
         ),
       ),

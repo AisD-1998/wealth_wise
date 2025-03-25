@@ -48,11 +48,11 @@ dependencies:
   flutter_lints: ^3.0.1
   logging: ^1.2.0
   flutter_secure_storage: ^9.0.0
-  shadcn_ui: ^0.23.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.3
 
 # The "flutter_lints" package below contains a set of recommended lints to
 # encourage good coding practices. The lint set provided by the package is
@@ -111,8 +111,6 @@ flutter:
   #         weight: 900
   #       - asset: "packages/shadcn_ui/fonts/Geist-UltraLight.otf"
   #         weight: 200
-  #       - asset: "packages/shadcn_ui/fonts/Geist-Regular.otf"
-  #         weight: 400
   #   - family: "GeistMono"
   #     fonts:
   #       - asset: "packages/shadcn_ui/fonts/GeistMono-Black.otf"

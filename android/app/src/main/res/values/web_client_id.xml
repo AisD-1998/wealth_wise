@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- This is the actual Web Client ID from your Firebase project -->
+    <string name="default_web_client_id">1098925595954-bq3m27fms48h2rr86cuthg4ukdb4juc4.apps.googleusercontent.com</string>
+</resources> 

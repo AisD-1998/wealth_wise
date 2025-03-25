@@ -56,8 +56,8 @@ class AuthProvider with ChangeNotifier {
             _user = newUser;
           }
 
-          // Run database migrations to ensure all collections exist
-          await _databaseService.runMigrations(firebaseUser.uid);
+          // Initialize default categories if needed
+          await _databaseService.initializeDefaultCategories(firebaseUser.uid);
         } else {
           _user = null;
         }
@@ -106,10 +106,13 @@ class AuthProvider with ChangeNotifier {
           await userCredential.user!.updateDisplayName(displayName);
         }
 
-        // Run database migrations to set up initial data
-        await _databaseService.runMigrations(userCredential.user!.uid);
+        // Initialize default categories
+        await _databaseService
+            .initializeDefaultCategories(userCredential.user!.uid);
 
         // User is created in Firestore via the authStateChanges listener
+        _isLoading = false;
+        notifyListeners();
         return true;
       }
 
@@ -141,8 +144,9 @@ class AuthProvider with ChangeNotifier {
               .updateUserData(_user!.copyWith(lastLoginAt: DateTime.now()));
         }
 
-        // Run database migrations in case they weren't run before
-        await _databaseService.runMigrations(userCredential.user!.uid);
+        // Initialize default categories if needed
+        await _databaseService
+            .initializeDefaultCategories(userCredential.user!.uid);
 
         _isLoading = false;
         notifyListeners();
@@ -328,7 +332,43 @@ class AuthProvider with ChangeNotifier {
   void _handleError(dynamic e) {
     _isLoading = false;
     if (e is firebase_auth.FirebaseAuthException) {
-      _error = e.message ?? 'Authentication error occurred';
+      switch (e.code) {
+        case 'invalid-email':
+          _error = 'The email address is badly formatted.';
+          break;
+        case 'user-disabled':
+          _error = 'This user has been disabled. Please contact support.';
+          break;
+        case 'user-not-found':
+          _error = 'No user found with this email.';
+          break;
+        case 'wrong-password':
+          _error = 'Incorrect password. Please try again.';
+          break;
+        case 'email-already-in-use':
+          _error = 'This email is already in use by another account.';
+          break;
+        case 'weak-password':
+          _error = 'The password is too weak.';
+          break;
+        case 'operation-not-allowed':
+          _error = 'This sign-in method is not enabled.';
+          break;
+        case 'account-exists-with-different-credential':
+          _error =
+              'An account already exists with the same email but different sign-in credentials.';
+          break;
+        case 'invalid-credential':
+          _error = 'The credential is malformed or has expired.';
+          break;
+        default:
+          _error = e.message ?? 'Authentication error occurred';
+      }
+    } else if (e.toString().contains('MissingPluginException')) {
+      _error = 'Plugin not configured correctly. Please check the setup.';
+    } else if (e.toString().contains('ApiException: 10')) {
+      _error =
+          'Google Sign-In requires proper SHA1 fingerprint in Firebase console.';
     } else {
       _error = e.toString();
     }

@@ -1,0 +1,2 @@
+C:/Users/PC/Desktop/WealthWise/android/app/.cxx/Debug/4j2i2j47/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/PC/Desktop/WealthWise/android/app/.cxx/Debug/4j2i2j47/armeabi-v7a/CMakeFiles/rebuild_cache.dir

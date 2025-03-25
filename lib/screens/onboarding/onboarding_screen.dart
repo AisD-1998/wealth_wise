@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/services/shared_prefs.dart';
+import 'package:wealth_wise/widgets/custom_action_button.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -102,7 +103,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       : const SizedBox(width: 80),
 
                   // Next/Get Started button
-                  ElevatedButton(
+                  CustomActionButton(
                     onPressed: () {
                       if (_currentPage < _items.length - 1) {
                         _pageController.nextPage(
@@ -113,13 +114,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         _completeOnboarding();
                       }
                     },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
-                    child: Text(
-                      _currentPage < _items.length - 1 ? 'Next' : 'Get Started',
-                    ),
+                    label: _currentPage < _items.length - 1
+                        ? 'Next'
+                        : 'Get Started',
+                    icon: _currentPage < _items.length - 1
+                        ? Icons.arrow_forward
+                        : Icons.check_circle_outline,
+                    isSmall: true,
                   ),
                 ],
               ),

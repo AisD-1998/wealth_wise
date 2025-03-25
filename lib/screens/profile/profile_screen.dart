@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
-import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/models/user.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -20,10 +19,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
+          ),
+        ],
       ),
       body: user == null
           ? _buildSignInPrompt(context)
-          : _buildProfileContent(context, user),
+          : SafeArea(
+              child: _buildProfileContent(context, user),
+            ),
     );
   }
 
@@ -65,167 +75,194 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileContent(BuildContext context, User user) {
+    final theme = Theme.of(context);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Profile picture and name
-          CircleAvatar(
-            radius: 60,
-            backgroundColor:
-                Theme.of(context).colorScheme.primary.withValues(alpha: 26),
-            backgroundImage:
-                user.photoUrl != null ? NetworkImage(user.photoUrl!) : null,
-            child: user.photoUrl == null
-                ? Text(
-                    user.displayName != null && user.displayName!.isNotEmpty
-                        ? user.displayName![0].toUpperCase()
-                        : 'U',
-                    style: TextStyle(
-                      fontSize: 40,
+          Card(
+            elevation: 0,
+            color: theme.colorScheme.surface.withValues(alpha: 240),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24.0),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 60,
+                    backgroundColor:
+                        theme.colorScheme.primary.withValues(alpha: 26),
+                    backgroundImage: user.photoUrl != null
+                        ? NetworkImage(user.photoUrl!)
+                        : null,
+                    child: user.photoUrl == null
+                        ? Text(
+                            user.displayName != null &&
+                                    user.displayName!.isNotEmpty
+                                ? user.displayName![0].toUpperCase()
+                                : 'U',
+                            style: TextStyle(
+                              fontSize: 40,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    user.displayName ?? 'User',
+                    style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
                     ),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            user.displayName ?? 'User',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          Text(
-            user.email,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey.shade600,
-                ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Account options
-          _buildSectionTitle(context, 'Account'),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.edit,
-            title: 'Edit Profile',
-            onTap: () {
-              // Navigate to edit profile
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.lock,
-            title: 'Change Password',
-            onTap: () {
-              // Navigate to change password
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.notifications,
-            title: 'Notifications',
-            onTap: () {
-              // Navigate to notifications settings
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          // Preferences
-          _buildSectionTitle(context, 'Preferences'),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.language,
-            title: 'Language',
-            subtitle: 'English',
-            onTap: () {
-              // Navigate to language settings
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.attach_money,
-            title: 'Currency',
-            subtitle: 'USD',
-            onTap: () {
-              // Navigate to currency settings
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.dark_mode,
-            title: 'Theme',
-            subtitle: 'Light',
-            onTap: () {
-              // Navigate to theme settings
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          // About and Support
-          _buildSectionTitle(context, 'About & Support'),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.help,
-            title: 'Help & Support',
-            onTap: () {
-              // Navigate to help and support
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.info,
-            title: 'About',
-            onTap: () {
-              // Navigate to about
-            },
-          ),
-          _buildProfileMenuItem(
-            context: context,
-            icon: Icons.policy,
-            title: 'Privacy Policy',
-            onTap: () {
-              // Navigate to privacy policy
-            },
-          ),
-
-          const SizedBox(height: 32),
-
-          // Sign out button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                // Store the navigation route before async operation
-                final navigator = Navigator.of(context);
-                final provider =
-                    Provider.of<AuthProvider>(context, listen: false);
-
-                // Sign out
-                await AuthService().signOut();
-                if (mounted) {
-                  provider.clearUser();
-                  navigator.pushNamedAndRemoveUntil(
-                    '/login',
-                    (route) => false,
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade100,
-                foregroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  Text(
+                    user.email,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 153),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: () {
+                      // Navigate to edit profile
+                    },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Edit Profile'),
+                  ),
+                ],
               ),
-              child: const Text('Sign Out'),
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
+
+          // Account options
+          _buildSectionTitle(context, 'Account'),
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16.0),
+            ),
+            child: Column(
+              children: [
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.lock_outline,
+                  title: 'Change Password',
+                  onTap: () {
+                    // Navigate to change password
+                  },
+                ),
+                const Divider(height: 1, indent: 72),
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.notifications_outlined,
+                  title: 'Notifications',
+                  onTap: () {
+                    // Navigate to notifications settings
+                  },
+                ),
+                const Divider(height: 1, indent: 72),
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.language_outlined,
+                  title: 'Language',
+                  subtitle: 'English',
+                  onTap: () {
+                    // Navigate to language settings
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Preferences
+          _buildSectionTitle(context, 'Preferences'),
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16.0),
+            ),
+            child: Column(
+              children: [
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.nightlight_outlined,
+                  title: 'Theme',
+                  subtitle: 'System default',
+                  onTap: () {
+                    // Theme settings
+                  },
+                ),
+                const Divider(height: 1, indent: 72),
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.attach_money_outlined,
+                  title: 'Currency',
+                  subtitle: 'USD',
+                  onTap: () {
+                    // Currency settings
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Support & Logout
+          _buildSectionTitle(context, 'Support'),
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16.0),
+            ),
+            child: Column(
+              children: [
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.help_outline,
+                  title: 'Help & Support',
+                  onTap: () {
+                    // Navigate to help
+                  },
+                ),
+                const Divider(height: 1, indent: 72),
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.info_outline,
+                  title: 'About',
+                  onTap: () {
+                    // Show about dialog
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          OutlinedButton.icon(
+            onPressed: () => _handleSignOut(context),
+            icon: const Icon(Icons.logout),
+            label: const Text('Sign Out'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+            ),
+          ),
+
+          const SizedBox(height: 40),
         ],
       ),
     );
@@ -233,16 +270,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0, left: 4.0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -254,32 +291,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
     String? subtitle,
     required VoidCallback onTap,
   }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8.0),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Colors.grey.shade200,
-        ),
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 26),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        title: Text(title),
-        subtitle: subtitle != null ? Text(subtitle) : null,
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
+      title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle) : null,
+      trailing: const Icon(
+        Icons.arrow_forward_ios,
+        size: 16,
       ),
+      onTap: onTap,
     );
+  }
+
+  // Helper method to show logout confirmation dialog
+  Future<bool> showLogoutConfirmation(BuildContext context) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Sign Out'),
+            content: const Text('Are you sure you want to sign out?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Sign Out'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  // Add this new method to handle sign out process
+  Future<void> _handleSignOut(BuildContext context) async {
+    // Store context related objects before async gap
+    final navigator = Navigator.of(context);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Show confirmation dialog
+    final shouldLogout = await showLogoutConfirmation(context);
+
+    // Check if still mounted after dialog
+    if (!mounted) return;
+
+    // Process the logout if confirmed
+    if (shouldLogout) {
+      // Sign out
+      await authProvider.signOut();
+
+      // Check if still mounted after sign out
+      if (!mounted) return;
+
+      // Navigate to login
+      navigator.pushNamedAndRemoveUntil(
+        '/login',
+        (route) => false,
+      );
+    }
   }
 }

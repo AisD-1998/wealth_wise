@@ -14,101 +14,147 @@ class BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final size = MediaQuery.of(context).size;
+    final isSmallScreen = size.width < 360;
+
     return Card(
-      elevation: 4,
+      elevation: 0, // Material 3 uses less elevation
+      clipBehavior:
+          Clip.antiAlias, // Ensures content doesn't overflow rounded corners
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius:
+            BorderRadius.circular(28), // Material 3 uses more rounded corners
       ),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 200),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Theme.of(context).colorScheme.primary,
-              Theme.of(context).colorScheme.primary.withValues(alpha: 179),
+              colorScheme.primary,
+              colorScheme.tertiary,
             ],
+            stops: const [0.0, 1.0],
+          ),
+          image: DecorationImage(
+            image: const AssetImage('assets/images/card_pattern.png'),
+            fit: BoxFit.cover,
+            opacity: 0.1,
+            alignment: Alignment.bottomRight,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            const Text(
-              'Current Balance',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
+            // Decorative circle
+            Positioned(
+              top: -40,
+              right: -40,
+              child: Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 26),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '\$${balance.toStringAsFixed(2)}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
+            // Card content
+            Padding(
+              padding: EdgeInsets.all(isSmallScreen ? 20.0 : 28.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title with subtle opacity
+                  Text(
+                    'Current Balance',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 217),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Balance amount with large, bold font
+                  Text(
+                    '\$${balance.toStringAsFixed(2)}',
+                    style: theme.textTheme.displayMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Income and Expenses in a row with better spacing
+                  Row(
+                    children: [
+                      // Income indicator
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Income',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: Colors.white.withValues(alpha: 217),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '+\$${income.toStringAsFixed(2)}',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Vertical divider
+                      Container(
+                        height: 40,
+                        width: 1,
+                        color: Colors.white.withValues(alpha: 217),
+                      ),
+
+                      // Expenses indicator
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Expenses',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.white.withValues(alpha: 217),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '-\$${expenses.toStringAsFixed(2)}',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  color: Colors.redAccent,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildBalanceItem(
-                    context,
-                    title: 'Income',
-                    amount: income,
-                    isPositive: true,
-                  ),
-                ),
-                Container(
-                  height: 40,
-                  width: 1,
-                  color: Colors.white30,
-                ),
-                Expanded(
-                  child: _buildBalanceItem(
-                    context,
-                    title: 'Expenses',
-                    amount: expenses,
-                    isPositive: false,
-                  ),
-                ),
-              ],
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildBalanceItem(
-    BuildContext context, {
-    required String title,
-    required double amount,
-    required bool isPositive,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${isPositive ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
-          style: TextStyle(
-            color: isPositive ? Colors.green.shade100 : Colors.red.shade100,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
     );
   }
 }

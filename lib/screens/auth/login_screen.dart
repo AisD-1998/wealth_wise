@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/screens/auth/register_screen.dart';
 import 'package:wealth_wise/screens/auth/reset_password_screen.dart';
-import 'package:wealth_wise/screens/home/home_screen.dart';
+
+import 'package:wealth_wise/widgets/custom_action_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
@@ -26,259 +28,225 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _togglePasswordVisibility() {
-    setState(() {
-      _obscurePassword = !_obscurePassword;
-    });
-  }
-
-  Future<void> _signInWithEmailPassword() async {
+  Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.signInWithEmailPassword(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
+    setState(() => _isLoading = true);
 
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+    try {
+      await context.read<AuthProvider>().signIn(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
+    } catch (e) {
+      if (!mounted) return;
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text(e.toString())),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  Future<void> _signInWithGoogle() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.signInWithGoogle();
-
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    }
-  }
-
-  Future<void> _signInWithFacebook() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.signInWithFacebook();
-
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    }
-  }
-
-  void _navigateToRegister() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const RegisterScreen()));
-  }
-
-  void _navigateToResetPassword() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const ResetPasswordScreen()),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
     final theme = Theme.of(context);
+    final authProvider = Provider.of<AuthProvider>(context);
 
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo and Title
+                const SizedBox(height: 48),
+                // Logo and welcome text
                 Icon(
-                  Icons.account_balance_wallet,
-                  size: 80,
-                  color: theme.primaryColor,
+                  Icons.account_balance_wallet_rounded,
+                  size: 64,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Welcome Back',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Sign in to continue',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurface.withAlpha(179),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 48),
+
+                // Email field
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    if (!value.contains('@')) {
+                      return 'Please enter a valid email';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'WealthWise',
-                  style: theme.textTheme.displayMedium?.copyWith(
-                    color: theme.primaryColor,
-                    fontWeight: FontWeight.bold,
+
+                // Password field
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  textAlign: TextAlign.center,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your password';
+                    }
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters';
+                    }
+                    return null;
+                  },
                 ),
-                Text(
-                  'Simple Finance Tracking, Simplified',
-                  style: theme.textTheme.bodyLarge,
-                  textAlign: TextAlign.center,
+                const SizedBox(height: 24),
+
+                // Login button
+                CustomActionButton(
+                  onPressed: _isLoading ? null : _signIn,
+                  label: _isLoading ? 'Signing in...' : 'Sign In',
+                  icon: _isLoading ? Icons.hourglass_empty : Icons.login,
+                  isSmall: false,
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 24),
 
-                // Login Form
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          hintText: 'Enter your email',
-                          prefixIcon: Icon(Icons.email),
+                // OR divider
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        'OR',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurface.withAlpha(128),
                         ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your email';
+                      ),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Social login buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustomActionButton(
+                        onPressed: () async {
+                          final scaffoldMessenger =
+                              ScaffoldMessenger.of(context);
+                          try {
+                            await authProvider.signInWithGoogle();
+                          } catch (e) {
+                            if (!mounted) return;
+                            scaffoldMessenger.showSnackBar(
+                              SnackBar(content: Text(e.toString())),
+                            );
                           }
-                          if (!value.contains('@') || !value.contains('.')) {
-                            return 'Please enter a valid email';
-                          }
-                          return null;
                         },
+                        label: 'Google',
+                        icon: Icons.g_mobiledata,
+                        isSmall: true,
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          hintText: 'Enter your password',
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: _togglePasswordVisibility,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: CustomActionButton(
+                        onPressed: () async {
+                          final scaffoldMessenger =
+                              ScaffoldMessenger.of(context);
+                          try {
+                            await authProvider.signInWithFacebook();
+                          } catch (e) {
+                            if (!mounted) return;
+                            scaffoldMessenger.showSnackBar(
+                              SnackBar(content: Text(e.toString())),
+                            );
                           }
-                          if (value.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
                         },
+                        label: 'Facebook',
+                        icon: Icons.facebook,
+                        isSmall: true,
                       ),
-                      const SizedBox(height: 8),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
 
-                      // Forgot Password Button
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: _navigateToResetPassword,
-                          child: const Text('Forgot Password?'),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Login Button
-                      ElevatedButton(
-                        onPressed: authProvider.isLoading
-                            ? null
-                            : _signInWithEmailPassword,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: authProvider.isLoading
-                              ? const CircularProgressIndicator()
-                              : const Text(
-                                  'Login',
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                        ),
-                      ),
-
-                      // Error Message
-                      if (authProvider.error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Text(
-                            authProvider.error!,
-                            style: TextStyle(
-                              color: theme.colorScheme.error,
-                              fontSize: 14,
-                            ),
-                            textAlign: TextAlign.center,
+                // Forgot password and sign up links
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ResetPasswordScreen(),
                           ),
-                        ),
-
-                      const SizedBox(height: 24),
-
-                      // OR Divider
-                      Row(
-                        children: [
-                          const Expanded(child: Divider()),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'OR',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey,
-                              ),
-                            ),
+                        );
+                      },
+                      child: const Text('Forgot Password?'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RegisterScreen(),
                           ),
-                          const Expanded(child: Divider()),
-                        ],
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // Social Login Buttons
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          // Google Login
-                          ElevatedButton.icon(
-                            onPressed: authProvider.isLoading
-                                ? null
-                                : _signInWithGoogle,
-                            icon: const Icon(Icons.g_mobiledata),
-                            label: const Text('Google'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black,
-                            ),
-                          ),
-
-                          // Facebook Login
-                          ElevatedButton.icon(
-                            onPressed: authProvider.isLoading
-                                ? null
-                                : _signInWithFacebook,
-                            icon: const Icon(Icons.facebook),
-                            label: const Text('Facebook'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1877F2),
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // Register Link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text("Don't have an account?"),
-                          TextButton(
-                            onPressed: _navigateToRegister,
-                            child: const Text('Register'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        );
+                      },
+                      child: const Text('Sign Up'),
+                    ),
+                  ],
                 ),
               ],
             ),

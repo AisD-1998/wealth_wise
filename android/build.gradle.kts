@@ -1,16 +1,3 @@
-// Add the Google services plugin classpath dependency
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.google.gms:google-services:4.4.0")
-    }
-}
-
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-
 allprojects {
     repositories {
         google()
@@ -18,11 +5,9 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
-rootProject.layout.buildDirectory.value(newBuildDir)
-
+val newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+    val newSubprojectBuildDir = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {
@@ -31,4 +16,4 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
-}
+} 

@@ -111,14 +111,26 @@ class AuthService {
   // Sign in with Google
   Future<UserCredential> signInWithGoogle() async {
     try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      _logger.info('Starting Google sign in process');
+
+      // Check if Google Play Services are available (on Android)
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
       if (googleUser == null) {
+        _logger.warning('Google sign in was cancelled by the user');
         throw Exception('Google sign in was cancelled by the user');
       }
 
+      _logger.info('Google user selected: ${googleUser.email}');
+
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
+
+      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
+        _logger.severe('Missing Google Auth Token');
+        throw Exception('Missing Google Auth Token');
+      }
 
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
@@ -126,57 +138,88 @@ class AuthService {
       );
 
       // Sign in with Firebase
+      _logger.info('Signing in to Firebase with Google credential');
       final userCredential = await _auth.signInWithCredential(credential);
 
       // Check if this is a new user
       if (userCredential.additionalUserInfo?.isNewUser == true) {
+        _logger.info(
+            'New user signed in with Google, creating Firestore document');
         // Create user document in Firestore
         await _firestore.collection('users').doc(userCredential.user?.uid).set({
           'email': userCredential.user?.email,
           'displayName': userCredential.user?.displayName,
+          'photoUrl': userCredential.user?.photoURL,
           'createdAt': FieldValue.serverTimestamp(),
           'provider': 'google',
+          'balance': 0.0,
         });
       }
 
+      _logger.info('Google sign in successful');
       return userCredential;
     } catch (e) {
-      _logger.warning('Error signing in with Google: $e');
-      rethrow;
+      _logger.severe('Error signing in with Google: $e');
+      throw Exception('Google sign in failed: $e');
     }
   }
 
   // Sign in with Facebook
   Future<UserCredential> signInWithFacebook() async {
     try {
+      _logger.info('Starting Facebook sign in process');
+
+      // Attempt to log in
       final LoginResult result = await _facebookAuth.login();
 
+      _logger.info('Facebook login result: ${result.status}');
+
       if (result.status != LoginStatus.success) {
-        throw Exception('Facebook sign in was not successful');
+        if (result.status == LoginStatus.cancelled) {
+          _logger.warning('Facebook sign in was cancelled by the user');
+          throw Exception('Facebook sign in was cancelled by the user');
+        } else {
+          _logger
+              .severe('Facebook sign in failed with status: ${result.status}');
+          throw Exception(
+              'Facebook sign in failed with status: ${result.status}');
+        }
       }
 
       final AccessToken? accessToken = result.accessToken;
 
-      final credential = FacebookAuthProvider.credential(accessToken!.token);
+      if (accessToken == null || accessToken.token.isEmpty) {
+        _logger.severe('No Facebook access token available');
+        throw Exception('No Facebook access token available');
+      }
+
+      _logger.info('Got Facebook access token, signing in to Firebase');
+
+      final credential = FacebookAuthProvider.credential(accessToken.token);
 
       // Sign in with Firebase
       final userCredential = await _auth.signInWithCredential(credential);
 
       // Check if this is a new user
       if (userCredential.additionalUserInfo?.isNewUser == true) {
+        _logger.info(
+            'New user signed in with Facebook, creating Firestore document');
         // Create user document in Firestore
         await _firestore.collection('users').doc(userCredential.user?.uid).set({
           'email': userCredential.user?.email,
           'displayName': userCredential.user?.displayName,
+          'photoUrl': userCredential.user?.photoURL,
           'createdAt': FieldValue.serverTimestamp(),
           'provider': 'facebook',
+          'balance': 0.0,
         });
       }
 
+      _logger.info('Facebook sign in successful');
       return userCredential;
     } catch (e) {
-      _logger.warning('Error signing in with Facebook: $e');
-      rethrow;
+      _logger.severe('Error signing in with Facebook: $e');
+      throw Exception('Facebook sign in failed: $e');
     }
   }
 

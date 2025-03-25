@@ -4,19 +4,62 @@ import 'package:wealth_wise/models/transaction.dart';
 
 class RecentTransactionsList extends StatelessWidget {
   final List<Transaction> transactions;
+  final VoidCallback? onSeeAllPressed;
 
   const RecentTransactionsList({
     super.key,
     required this.transactions,
+    this.onSeeAllPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    if (transactions.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                size: 48,
+                color: colorScheme.onSurface.withValues(alpha: 102),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No transactions yet',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 179),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Add your first transaction to start tracking',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 153),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListView.separated(
       physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
+      padding: EdgeInsets.zero,
       itemCount: transactions.length,
-      separatorBuilder: (context, index) => const Divider(height: 1),
+      separatorBuilder: (context, index) => Divider(
+        height: 1,
+        color: colorScheme.outlineVariant.withValues(alpha: 128),
+        indent: 72, // Aligns with the leading edge of the text
+      ),
       itemBuilder: (context, index) {
         final transaction = transactions[index];
         return _buildTransactionItem(context, transaction);
@@ -25,89 +68,100 @@ class RecentTransactionsList extends StatelessWidget {
   }
 
   Widget _buildTransactionItem(BuildContext context, Transaction transaction) {
-    final isExpense = transaction.type == TransactionType.expense;
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    // Determine color and icon based on transaction type
+    final isIncome = transaction.type == TransactionType.income;
+    final iconColor = isIncome ? Colors.green : Colors.red;
+    final amountColor = isIncome ? Colors.green : Colors.red;
+    final backgroundIconColor = isIncome
+        ? Colors.green.withValues(alpha: 26)
+        : Colors.red.withValues(alpha: 26);
+
+    // Get icon based on category or use default for the transaction type
+    IconData iconData;
+    if (transaction.category == 'Food & Groceries' ||
+        transaction.category == 'Food') {
+      iconData = Icons.restaurant;
+    } else if (transaction.category == 'Transport') {
+      iconData = Icons.directions_car;
+    } else if (transaction.category == 'Entertainment') {
+      iconData = Icons.movie;
+    } else if (transaction.category == 'Health') {
+      iconData = Icons.medical_services;
+    } else if (transaction.category == 'Utilities') {
+      iconData = Icons.power;
+    } else if (transaction.category == 'Housing') {
+      iconData = Icons.home;
+    } else if (transaction.category == 'Education') {
+      iconData = Icons.school;
+    } else if (transaction.category == 'Shopping') {
+      iconData = Icons.shopping_cart;
+    } else {
+      // Default icons based on type
+      iconData = isIncome ? Icons.arrow_upward : Icons.arrow_downward;
+    }
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16.0,
+        vertical: 8.0,
+      ),
       leading: Container(
-        padding: const EdgeInsets.all(10),
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
-          color: isExpense ? Colors.red.shade100 : Colors.green.shade100,
-          borderRadius: BorderRadius.circular(12),
+          color: backgroundIconColor,
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: Icon(
-          _getIconData(transaction.category ?? transaction.title),
-          color: isExpense ? Colors.red : Colors.green,
-          size: 24,
+        child: Center(
+          child: Icon(
+            iconData,
+            color: iconColor,
+          ),
         ),
       ),
       title: Text(
         transaction.title,
         style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w500,
         ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(
-        '${transaction.category ?? 'Uncategorized'} • ${DateFormat('MMM dd, yyyy').format(transaction.date)}',
-        style: TextStyle(
-          fontSize: 12,
-          color: theme.colorScheme.onSurface.withValues(alpha: 153),
-        ),
+      subtitle: Row(
+        children: [
+          Flexible(
+            child: Text(
+              transaction.category ?? 'Uncategorized',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Flexible(
+            child: Text(
+              ' • ${DateFormat('MMM d, yyyy').format(transaction.date)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
       trailing: Text(
-        '${isExpense ? '-' : '+'}\$${transaction.amount.toStringAsFixed(2)}',
+        '${isIncome ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
         style: theme.textTheme.titleMedium?.copyWith(
+          color: amountColor,
           fontWeight: FontWeight.bold,
-          color: isExpense ? Colors.red : Colors.green,
         ),
       ),
+      onTap: () {
+        // Navigate to transaction detail or edit screen
+      },
     );
-  }
-
-  IconData _getIconData(String title) {
-    final String lowercaseTitle = title.toLowerCase();
-
-    if (lowercaseTitle.contains('home') ||
-        lowercaseTitle.contains('rent') ||
-        lowercaseTitle.contains('mortgage')) {
-      return Icons.home;
-    } else if (lowercaseTitle.contains('food') ||
-        lowercaseTitle.contains('grocery') ||
-        lowercaseTitle.contains('restaurant')) {
-      return Icons.restaurant;
-    } else if (lowercaseTitle.contains('transport') ||
-        lowercaseTitle.contains('gas') ||
-        lowercaseTitle.contains('car')) {
-      return Icons.directions_car;
-    } else if (lowercaseTitle.contains('shopping') ||
-        lowercaseTitle.contains('clothes')) {
-      return Icons.shopping_bag;
-    } else if (lowercaseTitle.contains('entertainment') ||
-        lowercaseTitle.contains('movie')) {
-      return Icons.movie;
-    } else if (lowercaseTitle.contains('health') ||
-        lowercaseTitle.contains('medical')) {
-      return Icons.medical_services;
-    } else if (lowercaseTitle.contains('education') ||
-        lowercaseTitle.contains('school')) {
-      return Icons.school;
-    } else if (lowercaseTitle.contains('bill') ||
-        lowercaseTitle.contains('utility')) {
-      return Icons.receipt;
-    } else if (lowercaseTitle.contains('salary') ||
-        lowercaseTitle.contains('income')) {
-      return Icons.work;
-    } else {
-      return isIncome(title) ? Icons.arrow_downward : Icons.arrow_upward;
-    }
-  }
-
-  bool isIncome(String title) {
-    final String lowercaseTitle = title.toLowerCase();
-    return lowercaseTitle.contains('salary') ||
-        lowercaseTitle.contains('income') ||
-        lowercaseTitle.contains('refund') ||
-        lowercaseTitle.contains('deposit');
   }
 }

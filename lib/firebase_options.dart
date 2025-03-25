@@ -8,42 +8,58 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'Web platform is not supported yet - please configure Firebase manually',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'iOS platform is not supported yet - please configure Firebase manually',
-        );
+        return ios;
       case TargetPlatform.macOS:
         throw UnsupportedError(
-          'macOS platform is not supported yet - please configure Firebase manually',
+          'DefaultFirebaseOptions have not been configured for macos - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
         throw UnsupportedError(
-          'Windows platform is not supported yet - please configure Firebase manually',
+          'DefaultFirebaseOptions have not been configured for windows - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.linux:
         throw UnsupportedError(
-          'Linux platform is not supported yet - please configure Firebase manually',
+          'DefaultFirebaseOptions have not been configured for linux - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
         );
       default:
         throw UnsupportedError(
-          'Unknown platform $defaultTargetPlatform - please configure Firebase manually',
+          'DefaultFirebaseOptions are not supported for this platform.',
         );
     }
   }
 
-  // Replace these placeholder values with your actual Firebase configuration
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDB4dZWAjMu1Rz4hj2znVSUuMTc_Zz8jV8',
+    appId: '1:1098925595954:web:2f5e3b0f4e1c83bfcc94b2b',
+    messagingSenderId: '1098925595954',
+    projectId: 'wealthwise-f96a5',
+    authDomain: 'wealthwise-f96a5.firebaseapp.com',
+    storageBucket: 'wealthwise-f96a5.firebasestorage.app',
+  );
+
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAfB-f6-73O2VG2UlxEAaTzOtERbhr1yvQ',
     appId: '1:1098925595954:android:21c9b4efe1c83bfcc94b2b',
     messagingSenderId: '1098925595954',
     projectId: 'wealthwise-f96a5',
     storageBucket: 'wealthwise-f96a5.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyC7k2JUEx2rJ05XP8YdRu2y5IWI-4Dp1xo',
+    appId: '1:1098925595954:ios:a7c9b4efe1c83bfcc94b2b',
+    messagingSenderId: '1098925595954',
+    projectId: 'wealthwise-f96a5',
+    storageBucket: 'wealthwise-f96a5.firebasestorage.app',
+    iosBundleId: 'com.example.wealthWise',
   );
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
+import 'package:wealth_wise/screens/savings/create_saving_goal_screen.dart';
+import 'package:wealth_wise/widgets/custom_action_button.dart';
 
 class SavingsScreen extends StatelessWidget {
   const SavingsScreen({super.key});
@@ -54,8 +56,7 @@ class SavingsScreen extends StatelessWidget {
                         Text(
                           'of \$${_calculateTotalGoals(savingGoals).toStringAsFixed(2)}',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 153),
+                            color: theme.colorScheme.onSurface.withAlpha(153),
                           ),
                         ),
                       ],
@@ -63,8 +64,7 @@ class SavingsScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     LinearProgressIndicator(
                       value: _calculateOverallProgress(savingGoals),
-                      backgroundColor:
-                          theme.colorScheme.primary.withValues(alpha: 26),
+                      backgroundColor: theme.colorScheme.primary.withAlpha(26),
                       minHeight: 8,
                       borderRadius: BorderRadius.circular(4),
                     ),
@@ -72,8 +72,7 @@ class SavingsScreen extends StatelessWidget {
                     Text(
                       '${(_calculateOverallProgress(savingGoals) * 100).toInt()}% of total goal',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 153),
+                        color: theme.colorScheme.onSurface.withAlpha(153),
                       ),
                     ),
                   ],
@@ -93,12 +92,18 @@ class SavingsScreen extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  TextButton.icon(
+                  CustomActionButton(
                     onPressed: () {
-                      // Navigate to create goal screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CreateSavingGoalScreen(),
+                        ),
+                      );
                     },
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add New'),
+                    label: 'Create Goal',
+                    icon: Icons.add_circle_outline,
+                    isSmall: true,
                   ),
                 ],
               ),
@@ -114,8 +119,7 @@ class SavingsScreen extends StatelessWidget {
                           Icon(
                             Icons.savings,
                             size: 64,
-                            color: theme.colorScheme.primary
-                                .withValues(alpha: 128),
+                            color: theme.colorScheme.primary.withAlpha(128),
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -126,17 +130,23 @@ class SavingsScreen extends StatelessWidget {
                           Text(
                             'Start by creating a new saving goal',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 153),
+                              color: theme.colorScheme.onSurface.withAlpha(153),
                             ),
                           ),
                           const SizedBox(height: 24),
-                          ElevatedButton.icon(
+                          CustomActionButton(
                             onPressed: () {
-                              // Navigate to create goal screen
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const CreateSavingGoalScreen(),
+                                ),
+                              );
                             },
-                            icon: const Icon(Icons.add),
-                            label: const Text('Create Goal'),
+                            label: 'Create Goal',
+                            icon: Icons.add_circle_outline,
+                            isSmall: true,
                           ),
                         ],
                       ),
@@ -152,12 +162,6 @@ class SavingsScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Navigate to create goal screen
-        },
-        child: const Icon(Icons.add),
       ),
     );
   }
@@ -334,15 +338,13 @@ class SavingsScreen extends StatelessWidget {
                 Row(
                   children: [
                     if (!isCompleted)
-                      OutlinedButton(
+                      CustomActionButton(
                         onPressed: () {
                           _showAddToGoalDialog(context, goal);
                         },
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          minimumSize: const Size(0, 36),
-                        ),
-                        child: const Text('Add Funds'),
+                        label: 'Add Funds',
+                        icon: Icons.add_circle_outline,
+                        isSmall: true,
                       ),
                     const SizedBox(width: 8),
                     IconButton(
@@ -476,7 +478,13 @@ class SavingsScreen extends StatelessWidget {
                 title: const Text('Edit Goal'),
                 onTap: () {
                   Navigator.pop(context);
-                  // Navigate to edit goal
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          CreateSavingGoalScreen(existingGoal: goal),
+                    ),
+                  );
                 },
               ),
               ListTile(
@@ -507,6 +515,8 @@ class SavingsScreen extends StatelessWidget {
 
   void _showAddToGoalDialog(BuildContext context, SavingGoal goal) {
     final TextEditingController amountController = TextEditingController();
+    final financeProvider =
+        Provider.of<FinanceProvider>(context, listen: false);
 
     showDialog(
       context: context,
@@ -534,22 +544,46 @@ class SavingsScreen extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(
+            CustomActionButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              label: 'Cancel',
+              icon: Icons.close,
+              isSmall: true,
             ),
-            ElevatedButton(
-              onPressed: () {
-                // Add funds to goal
+            CustomActionButton(
+              onPressed: () async {
                 if (amountController.text.isNotEmpty) {
                   final amount = double.tryParse(amountController.text);
                   if (amount != null && amount > 0) {
                     // Update the goal
-                    Navigator.pop(context);
+                    final success = await financeProvider.contributeSavingGoal(
+                        goal, amount);
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      if (success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Added \$${amount.toStringAsFixed(2)} to ${goal.title}'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content:
+                                Text('Failed to add funds to ${goal.title}'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
                   }
                 }
               },
-              child: const Text('Add Funds'),
+              label: 'Add Funds',
+              icon: Icons.check_circle_outline,
+              isSmall: true,
             ),
           ],
         );
@@ -558,6 +592,9 @@ class SavingsScreen extends StatelessWidget {
   }
 
   void _showDeleteConfirmation(BuildContext context, SavingGoal goal) {
+    final financeProvider =
+        Provider.of<FinanceProvider>(context, listen: false);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -572,9 +609,26 @@ class SavingsScreen extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () {
-                // Delete the goal
-                Navigator.pop(context);
+              onPressed: () async {
+                final success = await financeProvider.deleteSavingGoal(goal);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  if (success) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${goal.title} has been deleted'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to delete ${goal.title}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Delete'),
