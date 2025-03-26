@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/models/transaction.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'dart:math' as math;
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -294,9 +296,10 @@ class _ReportsScreenState extends State<ReportsScreen>
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    height: 200,
+                  const SizedBox(height: 16),
+                  Container(
+                    height: 250,
+                    padding: const EdgeInsets.only(right: 16.0, bottom: 20.0),
                     child: _buildLineChart(context, incomeTransactions),
                   ),
                 ],
@@ -401,9 +404,10 @@ class _ReportsScreenState extends State<ReportsScreen>
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    height: 200,
+                  const SizedBox(height: 16),
+                  Container(
+                    height: 240,
+                    padding: const EdgeInsets.only(bottom: 8.0),
                     child: _buildPieChart(context, categoryTotals),
                   ),
                 ],
@@ -432,25 +436,39 @@ class _ReportsScreenState extends State<ReportsScreen>
               final percentage =
                   (category.value / financeProvider.totalExpenses) * 100;
 
+              // Find the category color from the list of categories
+              final categoryName = category.key;
+              Color categoryColor;
+
+              if (categoryName == 'Other') {
+                categoryColor = Colors.grey;
+              } else {
+                final categoryObj = financeProvider.categories
+                    .where((cat) => cat.name == categoryName)
+                    .firstOrNull;
+                // Use the category's color or a default
+                categoryColor = categoryObj?.color ?? Colors.red;
+              }
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade100,
+                      color: categoryColor.withValues(alpha: 51),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.category,
-                      color: Colors.red,
+                      color: categoryColor,
                     ),
                   ),
                   title: Text(category.key),
                   subtitle: LinearProgressIndicator(
                     value: category.value / financeProvider.totalExpenses,
                     backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                    valueColor: AlwaysStoppedAnimation<Color>(categoryColor),
                   ),
                   trailing: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -458,9 +476,9 @@ class _ReportsScreenState extends State<ReportsScreen>
                     children: [
                       Text(
                         '\$${category.value.toStringAsFixed(2)}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: Colors.red,
+                          color: categoryColor,
                         ),
                       ),
                       Text(
@@ -594,33 +612,557 @@ class _ReportsScreenState extends State<ReportsScreen>
   }
 
   Widget _buildBarChart(BuildContext context, List<Transaction> transactions) {
-    // Placeholder for bar chart
-    // In a real implementation, you would process the transactions
-    // and create appropriate BarChartData
+    final financeProvider = Provider.of<FinanceProvider>(context);
+    final totalIncome = financeProvider.totalIncome;
+    final totalExpense = financeProvider.totalExpenses;
+    final maxValue =
+        math.max(totalIncome, totalExpense) * 1.2; // 20% additional space
 
-    return const Center(
-      child: Text('Bar Chart Placeholder'),
+    return Stack(
+      children: [
+        BarChart(
+          BarChartData(
+            alignment: BarChartAlignment.spaceAround,
+            maxY: maxValue,
+            minY: 0,
+            gridData: FlGridData(
+              show: true,
+              horizontalInterval: maxValue / 4,
+              getDrawingHorizontalLine: (value) {
+                return FlLine(
+                  color: Colors.grey.shade300,
+                  strokeWidth: 1,
+                );
+              },
+              drawVerticalLine: false,
+            ),
+            titlesData: FlTitlesData(
+              show: true,
+              rightTitles: AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              topTitles: AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  getTitlesWidget: (double value, TitleMeta meta) {
+                    String text = '';
+                    if (value == 0) {
+                      text = 'Income';
+                    } else if (value == 1) {
+                      text = 'Expenses';
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(
+                        text,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 60,
+                  interval: maxValue / 4,
+                  getTitlesWidget: (double value, TitleMeta meta) {
+                    return Text(
+                      '\$${value.toInt()}',
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            borderData: FlBorderData(
+              show: false,
+            ),
+            barGroups: [
+              BarChartGroupData(
+                x: 0,
+                barRods: [
+                  BarChartRodData(
+                    toY: totalIncome,
+                    color: Colors.green,
+                    width: 40,
+                    borderRadius: BorderRadius.circular(4),
+                    backDrawRodData: BackgroundBarChartRodData(
+                      show: true,
+                      toY: maxValue,
+                      color: Colors.green.withValues(alpha: 26),
+                    ),
+                  ),
+                ],
+              ),
+              BarChartGroupData(
+                x: 1,
+                barRods: [
+                  BarChartRodData(
+                    toY: totalExpense,
+                    color: Colors.red,
+                    width: 40,
+                    borderRadius: BorderRadius.circular(4),
+                    backDrawRodData: BackgroundBarChartRodData(
+                      show: true,
+                      toY: maxValue,
+                      color: Colors.red.withValues(alpha: 26),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        // Add income and expense value labels above the bars
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Column(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200, width: 1),
+                    ),
+                    child: Text(
+                      '\$${totalIncome.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200, width: 1),
+                    ),
+                    child: Text(
+                      '\$${totalExpense.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildLineChart(BuildContext context, List<Transaction> transactions) {
-    // Placeholder for line chart
-    // In a real implementation, you would process the transactions
-    // and create appropriate LineChartData
+    // Group transactions by date and calculate daily income totals
+    final Map<DateTime, double> dailyIncomes = {};
 
-    return const Center(
-      child: Text('Line Chart Placeholder'),
+    // Get start and end dates for the range
+    final startDate = DateTime.now().subtract(const Duration(days: 30));
+    final endDate = DateTime.now();
+
+    // Initialize daily totals for all days in the range
+    for (var d = startDate;
+        d.isBefore(endDate) || d.isAtSameMomentAs(endDate);
+        d = d.add(const Duration(days: 1))) {
+      dailyIncomes[DateTime(d.year, d.month, d.day)] = 0;
+    }
+
+    // Sum up income transactions by date
+    for (final transaction in transactions) {
+      if (transaction.type == TransactionType.income) {
+        final date = DateTime(transaction.date.year, transaction.date.month,
+            transaction.date.day);
+        if (date.isAfter(startDate.subtract(const Duration(days: 1))) &&
+            date.isBefore(endDate.add(const Duration(days: 1)))) {
+          dailyIncomes[date] = (dailyIncomes[date] ?? 0) + transaction.amount;
+        }
+      }
+    }
+
+    // Find the max value for better scaling
+    double maxValue = 0;
+    for (final amount in dailyIncomes.values) {
+      if (amount > maxValue) {
+        maxValue = amount;
+      }
+    }
+
+    // If all values are 0, set max to 100 to avoid empty chart
+    if (maxValue == 0) {
+      maxValue = 100;
+    }
+
+    // Add some padding to the top
+    maxValue = maxValue * 1.2;
+
+    // Sort dates and create spot data
+    final sortedDates = dailyIncomes.keys.toList()..sort();
+
+    // Show dates at reasonable intervals (5-6 labels)
+    final interval = math.max(1, (sortedDates.length / 5).round());
+
+    // Create the spots for the line chart
+    final spots = <FlSpot>[];
+    for (int i = 0; i < sortedDates.length; i++) {
+      final date = sortedDates[i];
+      final amount = dailyIncomes[date] ?? 0;
+      spots.add(FlSpot(i.toDouble(), amount));
+    }
+
+    // Calculate appropriate interval for y-axis labels
+    final yLabelInterval = (maxValue / 4).roundToDouble();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12, bottom: 8, right: 12),
+      child: Column(
+        children: [
+          Expanded(
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: yLabelInterval,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: Colors.grey.shade300,
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  show: true,
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      interval: 1,
+                      getTitlesWidget: (double value, TitleMeta meta) {
+                        final index = value.toInt();
+                        // Only show dates at intervals
+                        if (index % interval != 0) {
+                          return const SizedBox.shrink();
+                        }
+                        if (index >= 0 && index < sortedDates.length) {
+                          final date = sortedDates[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              DateFormat('dd/MM').format(date),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 10,
+                              ),
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 46,
+                      interval: yLabelInterval,
+                      getTitlesWidget: (double value, TitleMeta meta) {
+                        if (value == 0) {
+                          return const SizedBox.shrink();
+                        }
+                        return Text(
+                          '\$${value.toInt()}',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+                    left: BorderSide(color: Colors.grey.shade300, width: 1),
+                  ),
+                ),
+                minX: 0,
+                maxX: (sortedDates.length - 1).toDouble(),
+                minY: 0, // Always start at 0 for income
+                maxY: maxValue,
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
+                      return touchedBarSpots.map((barSpot) {
+                        final index = barSpot.x.toInt();
+                        final date = index >= 0 && index < sortedDates.length
+                            ? DateFormat('MMM d').format(sortedDates[index])
+                            : '';
+                        return LineTooltipItem(
+                          '$date: \$${barSpot.y.toStringAsFixed(2)}',
+                          const TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        );
+                      }).toList();
+                    },
+                  ),
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    color: Colors.green,
+                    barWidth: 3,
+                    isStrokeCapRound: true,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) {
+                        return FlDotCirclePainter(
+                          radius: 4,
+                          color: Colors.white,
+                          strokeWidth: 2,
+                          strokeColor: Colors.green,
+                        );
+                      },
+                      checkToShowDot: (spot, barData) {
+                        // Only show dots at interval points or for non-zero values
+                        return spot.x.toInt() % interval == 0 || spot.y > 0;
+                      },
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      color: Colors.green.withValues(alpha: 26),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Legend
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  'Daily Income',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildPieChart(
       BuildContext context, Map<String, double> categoryTotals) {
-    // Placeholder for pie chart
-    // In a real implementation, you would process the category totals
-    // and create appropriate PieChartData
+    if (categoryTotals.isEmpty) {
+      return const Center(
+        child: Text('No expense data available'),
+      );
+    }
 
-    return const Center(
-      child: Text('Pie Chart Placeholder'),
+    // Sort categories by amount
+    final sortedCategories = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    // Calculate total for percentages
+    final total =
+        sortedCategories.fold<double>(0, (sum, entry) => sum + entry.value);
+
+    // Get the finance provider to access category colors
+    final financeProvider = Provider.of<FinanceProvider>(context);
+
+    // Default colors for categories not found
+    final defaultColors = [
+      Colors.red,
+      Colors.blue,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.pink,
+      Colors.amber,
+      Colors.indigo,
+      Colors.cyan,
+      Colors.brown,
+    ];
+
+    // Limit the number of categories to display to avoid cluttering
+    const maxCategoriesToShow = 7;
+    List<MapEntry<String, double>> displayCategories;
+
+    if (sortedCategories.length > maxCategoriesToShow) {
+      displayCategories = sortedCategories.sublist(0, maxCategoriesToShow);
+      // Create an "Other" category for the rest
+      double otherTotal = 0;
+      for (int i = maxCategoriesToShow; i < sortedCategories.length; i++) {
+        otherTotal += sortedCategories[i].value;
+      }
+      displayCategories.add(MapEntry('Other', otherTotal));
+    } else {
+      displayCategories = sortedCategories;
+    }
+
+    // Create a separate legend items list with actual category colors
+    final legendItems = displayCategories.map((category) {
+      final categoryName = category.key;
+      Color color;
+
+      if (categoryName == 'Other') {
+        color = Colors.grey;
+      } else {
+        // Find the category in the finance provider's categories list
+        final categoryObj = financeProvider.categories
+            .where((cat) => cat.name == categoryName)
+            .firstOrNull;
+        // Use the category's color if found, otherwise use a default
+        color = categoryObj?.color ??
+            defaultColors[
+                displayCategories.indexOf(category) % defaultColors.length];
+      }
+      return MapEntry(categoryName, color);
+    }).toList();
+
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 3,
+                centerSpaceRadius: 35,
+                borderData: FlBorderData(show: false),
+                sections: displayCategories.asMap().entries.map((entry) {
+                  final category = entry.value;
+                  final categoryName = category.key;
+                  final percentage = (category.value / total) * 100;
+
+                  // Use the same color as in the legend
+                  final legendIndex = legendItems
+                      .indexWhere((item) => item.key == categoryName);
+                  final color = legendIndex >= 0
+                      ? legendItems[legendIndex].value
+                      : defaultColors[entry.key % defaultColors.length];
+
+                  return PieChartSectionData(
+                    color: color,
+                    value: category.value,
+                    title: '${percentage.toStringAsFixed(0)}%',
+                    radius: 65,
+                    titleStyle: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontSize: percentage < 10 ? 11 : 13,
+                    ),
+                    borderSide: const BorderSide(width: 1, color: Colors.white),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+        // Legend with consistent colors matching the chart sections
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: Wrap(
+            spacing: 24,
+            runSpacing: 16,
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (var legendItem in legendItems)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: legendItem.value,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        legendItem.key,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

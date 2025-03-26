@@ -16,6 +16,12 @@ class UIHelpers {
     app_model.TransactionType type, {
     app_model.Transaction? existingTransaction,
   }) async {
+    // Get providers early to avoid deactivated context issues
+    final financeProvider =
+        Provider.of<FinanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController();
     final amountController = TextEditingController();
@@ -35,19 +41,38 @@ class UIHelpers {
       selectedTime = TimeOfDay.fromDateTime(existingTransaction.date);
       dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
       selectedCategory = existingTransaction.category;
-      contributesToGoal = existingTransaction
-          .contributesToGoal; // Set from existing transaction
+      contributesToGoal = existingTransaction.contributesToGoal;
     } else {
       dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
     }
 
-    void saveTransaction() async {
+    void saveTransaction(BuildContext innerContext) async {
       if (formKey.currentState!.validate()) {
-        final financeProvider =
-            Provider.of<FinanceProvider>(context, listen: false);
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final userId = authProvider.user?.uid;
+        final navigator = Navigator.of(innerContext);
+        // Close the form first
+        navigator.pop();
 
+        // Show loading indicator
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Saving changes...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        final userId = authProvider.user?.uid;
         if (userId != null) {
           final amount = double.parse(amountController.text);
           final date = DateTime(
@@ -72,7 +97,10 @@ class UIHelpers {
                 category: selectedCategory,
                 note: noteController.text.isEmpty ? null : noteController.text,
                 userId: userId,
-                contributesToGoal: contributesToGoal,
+                goalId: type == app_model.TransactionType.income &&
+                        contributesToGoal
+                    ? existingTransaction.goalId
+                    : null,
               );
 
               success =
@@ -82,21 +110,36 @@ class UIHelpers {
                 // Reload data
                 await financeProvider.initializeFinanceData(userId);
 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Transaction updated successfully')),
-                  );
+                // If this is an income transaction with a linked goal, contribute to the goal
+                if (type == app_model.TransactionType.income &&
+                    contributesToGoal &&
+                    financeProvider.savingGoals.isNotEmpty) {
+                  // Find the goal
+                  final goalId = updatedTransaction.goalId ??
+                      financeProvider.savingGoals.first.id;
+                  final goal = financeProvider.savingGoals.firstWhere(
+                      (g) => g.id == goalId,
+                      orElse: () => financeProvider.savingGoals.first);
+
+                  // Contribute the amount to the goal
+                  await financeProvider.contributeIncomeToSavingGoal(
+                      goal, amount);
                 }
+
+                scaffoldMessenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction updated successfully'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               } else {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(financeProvider.error ??
-                            'Failed to update transaction')),
-                  );
-                }
+                scaffoldMessenger.showSnackBar(
+                  SnackBar(
+                    content: Text(financeProvider.error ??
+                        'Failed to update transaction'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             } else {
               // Create new transaction
@@ -108,7 +151,12 @@ class UIHelpers {
                 category: selectedCategory,
                 note: noteController.text.isEmpty ? null : noteController.text,
                 userId: userId,
-                contributesToGoal: contributesToGoal,
+                goalId: type == app_model.TransactionType.income &&
+                        contributesToGoal
+                    ? financeProvider.savingGoals.isNotEmpty
+                        ? financeProvider.savingGoals.first.id
+                        : null
+                    : null,
               );
 
               success = await financeProvider.addTransaction(transaction);
@@ -117,54 +165,76 @@ class UIHelpers {
                 // Reload data
                 await financeProvider.initializeFinanceData(userId);
 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Transaction added successfully')),
-                  );
+                // If this is an income transaction with a linked goal, contribute to the goal
+                if (type == app_model.TransactionType.income &&
+                    contributesToGoal &&
+                    financeProvider.savingGoals.isNotEmpty) {
+                  // Find the goal
+                  final goalId = transaction.goalId ??
+                      financeProvider.savingGoals.first.id;
+                  final goal = financeProvider.savingGoals.firstWhere(
+                      (g) => g.id == goalId,
+                      orElse: () => financeProvider.savingGoals.first);
+
+                  // Contribute the amount to the goal
+                  await financeProvider.contributeIncomeToSavingGoal(
+                      goal, amount);
                 }
+
+                scaffoldMessenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Transaction added successfully'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               } else {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(financeProvider.error ??
-                            'Failed to add transaction')),
-                  );
-                }
+                scaffoldMessenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        financeProvider.error ?? 'Failed to add transaction'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             }
           } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error: $e')),
-              );
-            }
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Text('Error: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
           }
         }
       }
     }
 
-    Future<void> selectDate() async {
+    Future<void> selectDate(
+        BuildContext innerContext, StateSetter setState) async {
       final DateTime? picked = await showDatePicker(
-        context: context,
+        context: innerContext,
         initialDate: selectedDate,
         firstDate: DateTime(2020),
         lastDate: DateTime.now().add(const Duration(days: 1)),
       );
-      if (picked != null && picked != selectedDate && context.mounted) {
-        selectedDate = picked;
-        dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
+      if (picked != null && picked != selectedDate) {
+        setState(() {
+          selectedDate = picked;
+          dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
+        });
       }
     }
 
-    Future<void> selectTime() async {
+    Future<void> selectTime(
+        BuildContext innerContext, StateSetter setState) async {
       final TimeOfDay? picked = await showTimePicker(
-        context: context,
+        context: innerContext,
         initialTime: selectedTime,
       );
-      if (picked != null && context.mounted) {
-        selectedTime = picked;
+      if (picked != null) {
+        setState(() {
+          selectedTime = picked;
+        });
       }
     }
 
@@ -174,12 +244,12 @@ class UIHelpers {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
-        builder: (context) {
+        builder: (innerContext) {
           return StatefulBuilder(
-            builder: (context, setState) {
+            builder: (innerContext, setState) {
               return Padding(
                 padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                  bottom: MediaQuery.of(innerContext).viewInsets.bottom,
                 ),
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16.0),
@@ -249,6 +319,10 @@ class UIHelpers {
                             prefixIcon: Icon(Icons.category),
                           ),
                           items: [
+                            const DropdownMenuItem<String>(
+                              value: '',
+                              child: Text('Select a category'),
+                            ),
                             ...availableCategories.map((category) {
                               return DropdownMenuItem<String>(
                                 value: category,
@@ -267,10 +341,15 @@ class UIHelpers {
                             }
                             return null;
                           },
+                          isExpanded: true,
+                          icon: const Icon(Icons.arrow_drop_down),
+                          dropdownColor:
+                              Theme.of(innerContext).colorScheme.surface,
+                          style: Theme.of(innerContext).textTheme.bodyLarge,
                         ),
                         const SizedBox(height: 16),
                         GestureDetector(
-                          onTap: selectDate,
+                          onTap: () => selectDate(innerContext, setState),
                           child: AbsorbPointer(
                             child: TextFormField(
                               controller: dateController,
@@ -290,10 +369,7 @@ class UIHelpers {
                         ),
                         const SizedBox(height: 16),
                         GestureDetector(
-                          onTap: () async {
-                            await selectTime();
-                            setState(() {});
-                          },
+                          onTap: () => selectTime(innerContext, setState),
                           child: AbsorbPointer(
                             child: InputDecorator(
                               decoration: const InputDecoration(
@@ -301,7 +377,7 @@ class UIHelpers {
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.access_time),
                               ),
-                              child: Text(selectedTime.format(context)),
+                              child: Text(selectedTime.format(innerContext)),
                             ),
                           ),
                         ),
@@ -317,18 +393,53 @@ class UIHelpers {
                         ),
                         const SizedBox(height: 16),
 
-                        // Add checkbox for contributesToGoal - only for expense type
-                        if (type == app_model.TransactionType.expense)
-                          CheckboxListTile(
-                            title: const Text('Contributes to saving goal'),
-                            value: contributesToGoal,
-                            onChanged: (newValue) {
+                        // Replace checkbox with dropdown for saving goals - only for income transactions
+                        if (type == app_model.TransactionType.income &&
+                            financeProvider.savingGoals.isNotEmpty) ...[
+                          DropdownButtonFormField<String?>(
+                            decoration: const InputDecoration(
+                              labelText: 'Contribute to Saving Goal',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.savings),
+                            ),
+                            hint: const Text('Select a goal (optional)'),
+                            value: contributesToGoal
+                                ? financeProvider.savingGoals.first.id
+                                : null,
+                            items: [
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Text('None'),
+                              ),
+                              ...financeProvider.savingGoals.map((goal) {
+                                return DropdownMenuItem<String?>(
+                                  value: goal.id,
+                                  child: Text(goal.title),
+                                );
+                              }),
+                            ],
+                            onChanged: (goalId) {
                               setState(() {
-                                contributesToGoal = newValue ?? false;
+                                contributesToGoal = goalId != null;
+                                if (contributesToGoal) {
+                                  // Find the goal with this ID
+                                  final selectedGoal = financeProvider
+                                      .savingGoals
+                                      .firstWhere((goal) => goal.id == goalId);
+
+                                  // Set the transaction title to reflect the goal contribution
+                                  if (titleController.text.isEmpty ||
+                                      titleController.text
+                                          .startsWith('Contribution to ')) {
+                                    titleController.text =
+                                        'Contribution to ${selectedGoal.title}';
+                                  }
+                                }
                               });
                             },
-                            controlAffinity: ListTileControlAffinity.leading,
                           ),
+                          const SizedBox(height: 16),
+                        ],
 
                         const SizedBox(height: 24),
                         Row(
@@ -336,12 +447,12 @@ class UIHelpers {
                           children: [
                             TextButton(
                               onPressed: () {
-                                Navigator.pop(context);
+                                Navigator.pop(innerContext);
                               },
                               child: const Text('Cancel'),
                             ),
                             FilledButton(
-                              onPressed: saveTransaction,
+                              onPressed: () => saveTransaction(innerContext),
                               child: Text(
                                 existingTransaction != null ? 'Update' : 'Save',
                               ),
@@ -469,7 +580,7 @@ class UIHelpers {
                     backgroundColor:
                         HexColor.fromHex(goal.colorCode ?? '#3C63F9'),
                     child: Icon(
-                      _getIconForGoalTitle(goal.title),
+                      getIconForGoalTitle(goal.title),
                       color: Colors.white,
                       size: 20,
                     ),
@@ -511,7 +622,7 @@ class UIHelpers {
   }
 
   // Get an icon based on the goal title
-  static IconData _getIconForGoalTitle(String title) {
+  static IconData getIconForGoalTitle(String title) {
     final String lowercaseTitle = title.toLowerCase();
     if (lowercaseTitle.contains('home') || lowercaseTitle.contains('housing')) {
       return Icons.home;
@@ -542,45 +653,68 @@ class UIHelpers {
       return [];
     }
 
-    // Make sure categories are loaded
-    await categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
+    // Load categories outside of build
+    try {
+      await categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
 
-    // Default categories for expenses if there are none in the database
-    if (categoryProvider.categories.isEmpty &&
-        type == app_model.TransactionType.expense) {
-      return [
-        'Food & Groceries',
-        'Transportation',
-        'Entertainment',
-        'Utilities',
-        'Housing',
-        'Health',
-        'Shopping',
-        'Education',
-        'Personal Care',
-        'Other'
-      ];
+      // If no categories found for the user, return default categories
+      if (categoryProvider.categories.isEmpty) {
+        if (type == app_model.TransactionType.expense) {
+          return [
+            'Food & Groceries',
+            'Transportation',
+            'Entertainment',
+            'Utilities',
+            'Housing',
+            'Health',
+            'Shopping',
+            'Education',
+            'Personal Care',
+            'Other'
+          ];
+        } else {
+          return [
+            'Salary',
+            'Business',
+            'Investments',
+            'Gifts',
+            'Allowance',
+            'Other Income'
+          ];
+        }
+      }
+
+      // Extract category names and ensure they're unique
+      final Set<String> uniqueCategoryNames = {};
+
+      for (var category in categoryProvider.categories) {
+        // Safely access name property
+        final name = category.name;
+        if (name.isNotEmpty) {
+          uniqueCategoryNames.add(name);
+        }
+      }
+
+      // Add 'Other' if not already in the list
+      uniqueCategoryNames.add('Other');
+
+      return uniqueCategoryNames.toList();
+    } catch (e) {
+      // In case of error, return basic categories
+      if (type == app_model.TransactionType.expense) {
+        return [
+          'Food & Groceries',
+          'Transportation',
+          'Entertainment',
+          'Utilities',
+          'Housing',
+          'Health',
+          'Other'
+        ];
+      } else {
+        return ['Salary', 'Business', 'Investments', 'Other Income'];
+      }
     }
-
-    // Default categories for income if there are none in the database
-    if (categoryProvider.categories.isEmpty &&
-        type == app_model.TransactionType.income) {
-      return [
-        'Salary',
-        'Business',
-        'Investments',
-        'Gifts',
-        'Allowance',
-        'Other Income'
-      ];
-    }
-
-    // Extract category names and ensure they're unique
-    final Set<String> uniqueCategoryNames = categoryProvider.categories
-        .map((category) => category.name)
-        .toSet(); // Using toSet() to remove duplicates
-
-    return uniqueCategoryNames.toList();
   }
 }
 

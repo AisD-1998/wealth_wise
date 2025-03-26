@@ -142,17 +142,21 @@ class _TransactionFormState extends State<TransactionForm> {
           type: _selectedType,
           category: _selectedCategory,
           note: _noteController.text.trim(),
-          contributesToGoal: _saveToSavingsGoal,
+          goalId: _selectedType == TransactionType.income &&
+                  _saveToSavingsGoal &&
+                  _selectedSavingGoal != null
+              ? _selectedSavingGoal!.id
+              : null,
         );
 
         success = await financeProvider.addTransaction(newTransaction);
 
-        // If this is a saving goal contribution, update the saving goal too
+        // If this is an income saving goal contribution, update the saving goal too
         if (success &&
+            _selectedType == TransactionType.income &&
             _saveToSavingsGoal &&
-            _selectedSavingGoal != null &&
-            _selectedType == TransactionType.expense) {
-          await financeProvider.contributeSavingGoal(
+            _selectedSavingGoal != null) {
+          await financeProvider.contributeIncomeToSavingGoal(
               _selectedSavingGoal!, amount);
         }
       } else {
@@ -164,6 +168,11 @@ class _TransactionFormState extends State<TransactionForm> {
           type: _selectedType,
           category: _selectedCategory,
           note: _noteController.text.trim(),
+          goalId: _selectedType == TransactionType.income &&
+                  _saveToSavingsGoal &&
+                  _selectedSavingGoal != null
+              ? _selectedSavingGoal!.id
+              : null,
         );
 
         success = await financeProvider.updateTransaction(updatedTransaction);
@@ -250,7 +259,7 @@ class _TransactionFormState extends State<TransactionForm> {
               : 'Add ${_selectedType == TransactionType.income ? 'Income' : 'Expense'}',
         ),
         actions: [
-          if (_selectedType == TransactionType.expense &&
+          if (_selectedType == TransactionType.income &&
               savingGoals.isNotEmpty &&
               widget.transaction == null)
             TextButton.icon(
@@ -264,7 +273,7 @@ class _TransactionFormState extends State<TransactionForm> {
                   setState(() {
                     _titleController.text =
                         'Contribution to ${selectedGoal.title}';
-                    _selectedCategory = 'Savings';
+                    _selectedCategory = 'Investments';
                     _saveToSavingsGoal = true;
                     _selectedSavingGoal = selectedGoal;
                   });
@@ -299,11 +308,15 @@ class _TransactionFormState extends State<TransactionForm> {
                       ),
                     ],
                     selected: {_selectedType},
-                    onSelectionChanged: (Set<TransactionType> selection) {
+                    onSelectionChanged: (Set<TransactionType> selected) {
                       setState(() {
-                        _selectedType = selection.first;
-                        // Reset category when changing type
+                        _selectedType = selected.first;
                         _selectedCategory = null;
+                        // Clear saving goal selection if type is changed to expense
+                        if (_selectedType == TransactionType.expense) {
+                          _saveToSavingsGoal = false;
+                          _selectedSavingGoal = null;
+                        }
                       });
                     },
                   ),
@@ -433,6 +446,49 @@ class _TransactionFormState extends State<TransactionForm> {
                   ),
                   maxLines: 2,
                 ),
+
+                // Add Saving Goal selection for Income transactions
+                if (_selectedType == TransactionType.income &&
+                    savingGoals.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<SavingGoal?>(
+                    decoration: const InputDecoration(
+                      labelText: 'Contribute to Saving Goal',
+                      hintText: 'Select a goal (optional)',
+                      prefixIcon: Icon(Icons.savings),
+                    ),
+                    value: _selectedSavingGoal,
+                    items: [
+                      const DropdownMenuItem<SavingGoal?>(
+                        value: null,
+                        child: Text('None'),
+                      ),
+                      ...savingGoals.map((goal) {
+                        return DropdownMenuItem<SavingGoal?>(
+                          value: goal,
+                          child: Text(goal.title),
+                        );
+                      }),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSavingGoal = value;
+                        _saveToSavingsGoal = value != null;
+
+                        // Optionally set the title to reflect the goal contribution
+                        if (_saveToSavingsGoal && _selectedSavingGoal != null) {
+                          if (_titleController.text.isEmpty ||
+                              _titleController.text
+                                  .startsWith('Contribution to ')) {
+                            _titleController.text =
+                                'Contribution to ${_selectedSavingGoal!.title}';
+                          }
+                        }
+                      });
+                    },
+                  ),
+                ],
+
                 const SizedBox(height: 24),
 
                 // Submit Button

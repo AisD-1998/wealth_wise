@@ -342,15 +342,60 @@ class FinanceProvider with ChangeNotifier {
         return false;
       }
 
-      // Update in Firestore
-      final success = await _databaseService.updateTransaction(transaction);
+      // Store the old transaction for potential rollback
+      final oldTransaction = _transactions.firstWhere(
+        (t) => t.id == transaction.id,
+        orElse: () => transaction,
+      );
+
+      // Update in local state first for immediate UI feedback
+      final index = _transactions.indexWhere((t) => t.id == transaction.id);
+      if (index >= 0) {
+        _transactions[index] = transaction;
+        notifyListeners();
+      } else {
+        _logger
+            .warning('Transaction not found in local state: ${transaction.id}');
+      }
+
+      // Update in Firestore with retry mechanism
+      bool success = false;
+      int retryCount = 0;
+      const maxRetries = 3;
+
+      while (!success && retryCount < maxRetries) {
+        try {
+          success = await _databaseService.updateTransaction(transaction);
+          if (success) break;
+          retryCount++;
+          await Future.delayed(Duration(milliseconds: 300 * retryCount));
+        } catch (e) {
+          _logger.warning('Retry ${retryCount + 1} failed: $e');
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            rethrow; // Rethrow after max retries
+          }
+          await Future.delayed(Duration(milliseconds: 300 * retryCount));
+        }
+      }
 
       if (!success) {
-        _error = 'Failed to update transaction in database';
+        _error =
+            'Failed to update transaction in database after $maxRetries attempts';
+        _logger.warning(_error!);
+
+        // Rollback local state if database update fails
+        if (index >= 0) {
+          _transactions[index] = oldTransaction;
+          notifyListeners();
+        }
+
         _isLoading = false;
         notifyListeners();
         return false;
       }
+
+      _logger.info('Transaction updated successfully: ${transaction.id}');
 
       // Re-fetch the transactions to ensure everything is in sync
       await fetchTransactions();
@@ -361,6 +406,10 @@ class FinanceProvider with ChangeNotifier {
     } catch (e) {
       _error = 'Failed to update transaction: $e';
       _logger.severe(_error);
+
+      // Re-fetch to ensure UI is in sync
+      await fetchTransactions();
+
       _isLoading = false;
       notifyListeners();
       return false;
@@ -545,7 +594,7 @@ class FinanceProvider with ChangeNotifier {
           type: app_model.TransactionType.expense,
           category: 'Savings',
           note: 'Contribution to saving goal',
-          contributesToGoal: true);
+          goalId: goal.id);
 
       // Add the transaction
       await _databaseService.addTransaction(transaction);
@@ -720,6 +769,81 @@ class FinanceProvider with ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('Error updating financial summary: $e');
+    }
+  }
+
+  // Get a saving goal by ID
+  Future<SavingGoal?> getSavingGoalById(String goalId) async {
+    try {
+      // First, check if the goal is in the local cache
+      final cachedGoal = _savingGoals.firstWhere(
+        (goal) => goal.id == goalId,
+        orElse: () => SavingGoal(
+            id: '',
+            title: '',
+            targetAmount: 0,
+            userId: ''), // Return a dummy goal that will be ignored
+      );
+
+      // Check that we actually got a valid goal with the right ID
+      if (cachedGoal.id == goalId) {
+        return cachedGoal;
+      }
+    } catch (e) {
+      // Goal not found in cache, fetch from database
+      _logger.warning('Error finding goal in cache: $e');
+    }
+
+    // If we're here, goal wasn't in the cache or there was an error
+    try {
+      return await _databaseService.getSavingGoal(goalId);
+    } catch (e) {
+      _error = 'Failed to fetch saving goal: $e';
+      _logger.warning(_error);
+      return null;
+    }
+  }
+
+  // Contribute income to a saving goal (for income transactions)
+  Future<bool> contributeIncomeToSavingGoal(
+      SavingGoal goal, double amount) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      _logger.info(
+          'Contributing income to saving goal: ${goal.id}, amount: $amount');
+
+      // Update the goal with the new amount
+      final updatedGoal =
+          goal.copyWith(currentAmount: goal.currentAmount + amount);
+
+      final success = await _databaseService.updateSavingGoal(updatedGoal);
+
+      if (success) {
+        // Update local state
+        final index = _savingGoals.indexWhere((g) => g.id == goal.id);
+        if (index >= 0) {
+          _savingGoals[index] = updatedGoal;
+        }
+
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+
+      _error = 'Failed to contribute income to saving goal';
+      _logger.warning(_error!);
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = 'Error contributing income to saving goal: $e';
+      _logger.severe(_error!);
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:wealth_wise/models/transaction.dart' as app_model;
+import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
@@ -485,7 +486,7 @@ class TransactionGroup extends StatelessWidget {
   }
 }
 
-class TransactionListItem extends StatelessWidget {
+class TransactionListItem extends StatefulWidget {
   final app_model.Transaction transaction;
 
   const TransactionListItem({
@@ -494,11 +495,23 @@ class TransactionListItem extends StatelessWidget {
   });
 
   @override
+  State<TransactionListItem> createState() => _TransactionListItemState();
+}
+
+class _TransactionListItemState extends State<TransactionListItem> {
+  @override
   Widget build(BuildContext context) {
+    final transaction = widget.transaction;
     final isIncome = transaction.type == app_model.TransactionType.income;
     final formattedAmount = isIncome
         ? '+\$${transaction.amount.toStringAsFixed(2)}'
         : '-\$${transaction.amount.toStringAsFixed(2)}';
+
+    // Get providers early to avoid deactivated context issues
+    final financeProvider =
+        Provider.of<FinanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     // Determine icon based on category
     IconData iconData;
@@ -556,22 +569,57 @@ class TransactionListItem extends StatelessWidget {
         ),
       ),
       confirmDismiss: (direction) async {
-        return await UIHelpers.showConfirmationDialog(
+        final result = await showDialog<bool>(
           context: context,
-          title: 'Delete Transaction',
-          message: 'Are you sure you want to delete this transaction?',
-          confirmText: 'Delete',
-          cancelText: 'Cancel',
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Delete Transaction'),
+              content: const Text(
+                  'Are you sure you want to delete this transaction?'),
+              actions: <Widget>[
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () {
+                    Navigator.of(context).pop(false);
+                  },
+                ),
+                TextButton(
+                  child:
+                      const Text('Delete', style: TextStyle(color: Colors.red)),
+                  onPressed: () {
+                    Navigator.of(context).pop(true);
+                  },
+                ),
+              ],
+            );
+          },
         );
+        return result ?? false;
       },
       onDismissed: (direction) async {
-        final financeProvider =
-            Provider.of<FinanceProvider>(context, listen: false);
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        final scaffoldMessenger = ScaffoldMessenger.of(context);
-
         try {
           if (transaction.id != null) {
+            // Show loading indicator
+            scaffoldMessenger.showSnackBar(
+              const SnackBar(
+                content: Row(
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Text('Deleting transaction...'),
+                  ],
+                ),
+                duration: Duration(seconds: 2),
+              ),
+            );
+
             final success =
                 await financeProvider.deleteTransaction(transaction);
 
@@ -581,9 +629,15 @@ class TransactionListItem extends StatelessWidget {
                   content: const Text('Transaction deleted'),
                   action: SnackBarAction(
                     label: 'Undo',
-                    onPressed: () {
+                    onPressed: () async {
                       // Re-add the transaction if user wants to undo
-                      financeProvider.addTransaction(transaction);
+                      await financeProvider.addTransaction(transaction);
+
+                      // Refresh data
+                      if (authProvider.user?.uid != null) {
+                        await financeProvider
+                            .initializeFinanceData(authProvider.user!.uid);
+                      }
                     },
                   ),
                 ),
@@ -598,12 +652,14 @@ class TransactionListItem extends StatelessWidget {
               // If deletion fails, show error and force a refresh
               scaffoldMessenger.showSnackBar(
                 SnackBar(
-                    content: Text(financeProvider.error ??
-                        'Failed to delete transaction')),
+                  content: Text(
+                      financeProvider.error ?? 'Failed to delete transaction'),
+                  backgroundColor: Colors.red,
+                ),
               );
 
               // Refresh the list
-              if (context.mounted && authProvider.user?.uid != null) {
+              if (authProvider.user?.uid != null) {
                 await financeProvider
                     .initializeFinanceData(authProvider.user!.uid);
               }
@@ -611,7 +667,10 @@ class TransactionListItem extends StatelessWidget {
           }
         } catch (e) {
           scaffoldMessenger.showSnackBar(
-            SnackBar(content: Text('Error: $e')),
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       },
@@ -647,7 +706,344 @@ class TransactionListItem extends StatelessWidget {
             ],
           ),
           onTap: () {
-            _showTransactionDetails(context, transaction);
+            // Show transaction details directly
+            final isIncome =
+                transaction.type == app_model.TransactionType.income;
+            final formattedAmount = isIncome
+                ? '+\$${transaction.amount.toStringAsFixed(2)}'
+                : '-\$${transaction.amount.toStringAsFixed(2)}';
+
+            showModalBottomSheet(
+              context: context,
+              builder: (context) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        transaction.title,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        transaction.category ?? 'Uncategorized',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: Colors.grey[600],
+                            ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Amount',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            formattedAmount,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                              color: isIncome ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Date',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            DateFormat('MMMM d, yyyy').format(transaction.date),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Time',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            DateFormat('h:mm a').format(transaction.date),
+                          ),
+                        ],
+                      ),
+                      if (transaction.note != null &&
+                          transaction.note!.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Notes',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(transaction.note!),
+                      ],
+                      if (transaction.type ==
+                              app_model.TransactionType.expense ||
+                          transaction.type ==
+                              app_model.TransactionType.income) ...[
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Saving Goal',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ],
+                        ),
+                        if (transaction.goalId != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: FutureBuilder<SavingGoal?>(
+                              future: financeProvider
+                                  .getSavingGoalById(transaction.goalId!),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2)),
+                                  );
+                                }
+
+                                final goal = snapshot.data;
+                                if (goal == null) {
+                                  return const Text('Goal not found',
+                                      style: TextStyle(
+                                          fontStyle: FontStyle.italic));
+                                }
+
+                                return Container(
+                                  padding: const EdgeInsets.all(8.0),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 77),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        backgroundColor: HexColor.fromHex(
+                                            goal.colorCode ?? '#3C63F9'),
+                                        radius: 16,
+                                        child: Icon(
+                                          UIHelpers.getIconForGoalTitle(
+                                              goal.title),
+                                          color: Colors.white,
+                                          size: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              goal.title,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '\$${goal.currentAmount.toStringAsFixed(2)} of \$${goal.targetAmount.toStringAsFixed(2)}',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                              child: LinearProgressIndicator(
+                                                value: goal.progressPercentage /
+                                                    100,
+                                                minHeight: 4,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.check),
+                          label: const Text('Close'),
+                        ),
+                      ),
+                      // Add action buttons for edit and delete
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.edit),
+                            label: const Text('Edit'),
+                            onPressed: () {
+                              // Get a reference to these before closing modal
+                              final transactionToEdit = transaction;
+                              final currentContext = context;
+
+                              // Close the modal
+                              Navigator.pop(context);
+
+                              // Show edit form using a more reliable approach
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                UIHelpers.showTransactionForm(
+                                  currentContext,
+                                  transactionToEdit.type,
+                                  existingTransaction: transactionToEdit,
+                                );
+                              });
+                            },
+                          ),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            label: const Text('Delete',
+                                style: TextStyle(color: Colors.red)),
+                            onPressed: () async {
+                              // Close the modal first
+                              Navigator.pop(context);
+
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (BuildContext dialogContext) {
+                                  return AlertDialog(
+                                    title: const Text('Delete Transaction'),
+                                    content: const Text(
+                                        'Are you sure you want to delete this transaction?'),
+                                    actions: <Widget>[
+                                      TextButton(
+                                        child: const Text('Cancel'),
+                                        onPressed: () {
+                                          Navigator.of(dialogContext)
+                                              .pop(false);
+                                        },
+                                      ),
+                                      TextButton(
+                                        child: const Text('Delete',
+                                            style:
+                                                TextStyle(color: Colors.red)),
+                                        onPressed: () {
+                                          Navigator.of(dialogContext).pop(true);
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+
+                              if (confirm == true) {
+                                // Show loading indicator
+                                scaffoldMessenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                        SizedBox(width: 16),
+                                        Text('Deleting transaction...'),
+                                      ],
+                                    ),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+
+                                try {
+                                  final success = await financeProvider
+                                      .deleteTransaction(transaction);
+
+                                  if (success) {
+                                    scaffoldMessenger.showSnackBar(
+                                      SnackBar(
+                                        content:
+                                            const Text('Transaction deleted'),
+                                        action: SnackBarAction(
+                                          label: 'Undo',
+                                          onPressed: () async {
+                                            await financeProvider
+                                                .addTransaction(transaction);
+                                            if (authProvider.user?.uid !=
+                                                null) {
+                                              await financeProvider
+                                                  .initializeFinanceData(
+                                                      authProvider.user!.uid);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    );
+
+                                    // Refresh the data
+                                    if (authProvider.user?.uid != null) {
+                                      await financeProvider
+                                          .initializeFinanceData(
+                                              authProvider.user!.uid);
+                                    }
+                                  } else {
+                                    scaffoldMessenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(financeProvider.error ??
+                                            'Failed to delete transaction'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  scaffoldMessenger.showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
           },
         ),
       ),
@@ -656,6 +1052,12 @@ class TransactionListItem extends StatelessWidget {
 
   void _showTransactionOptions(
       BuildContext context, app_model.Transaction transaction) {
+    // Get providers early to avoid deactivated context issues
+    final financeProvider =
+        Provider.of<FinanceProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -668,19 +1070,388 @@ class TransactionListItem extends StatelessWidget {
                 title: const Text('View Details'),
                 onTap: () {
                   Navigator.pop(context);
-                  _showTransactionDetails(context, transaction);
+
+                  // Show transaction details directly here
+                  final isIncome =
+                      transaction.type == app_model.TransactionType.income;
+                  final formattedAmount = isIncome
+                      ? '+\$${transaction.amount.toStringAsFixed(2)}'
+                      : '-\$${transaction.amount.toStringAsFixed(2)}';
+
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (context) {
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              transaction.title,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              transaction.category ?? 'Uncategorized',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                  ),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Amount',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  formattedAmount,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: isIncome ? Colors.green : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Divider(),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Date',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  DateFormat('MMMM d, yyyy')
+                                      .format(transaction.date),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Time',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  DateFormat('h:mm a').format(transaction.date),
+                                ),
+                              ],
+                            ),
+                            if (transaction.note != null &&
+                                transaction.note!.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Notes',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(transaction.note!),
+                            ],
+                            if (transaction.type ==
+                                    app_model.TransactionType.expense ||
+                                transaction.type ==
+                                    app_model.TransactionType.income) ...[
+                              const SizedBox(height: 16),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Saving Goal',
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                ],
+                              ),
+                              if (transaction.goalId != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: FutureBuilder<SavingGoal?>(
+                                    future: financeProvider
+                                        .getSavingGoalById(transaction.goalId!),
+                                    builder: (context, snapshot) {
+                                      if (snapshot.connectionState ==
+                                          ConnectionState.waiting) {
+                                        return const Center(
+                                          child: SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2)),
+                                        );
+                                      }
+
+                                      final goal = snapshot.data;
+                                      if (goal == null) {
+                                        return const Text('Goal not found',
+                                            style: TextStyle(
+                                                fontStyle: FontStyle.italic));
+                                      }
+
+                                      return Container(
+                                        padding: const EdgeInsets.all(8.0),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .surfaceContainerHighest
+                                              .withValues(alpha: 77),
+                                          borderRadius:
+                                              BorderRadius.circular(8.0),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            CircleAvatar(
+                                              backgroundColor: HexColor.fromHex(
+                                                  goal.colorCode ?? '#3C63F9'),
+                                              radius: 16,
+                                              child: Icon(
+                                                UIHelpers.getIconForGoalTitle(
+                                                    goal.title),
+                                                color: Colors.white,
+                                                size: 14,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    goal.title,
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    '\$${goal.currentAmount.toStringAsFixed(2)} of \$${goal.targetAmount.toStringAsFixed(2)}',
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall,
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            2),
+                                                    child:
+                                                        LinearProgressIndicator(
+                                                      value:
+                                                          goal.progressPercentage /
+                                                              100,
+                                                      minHeight: 4,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
+                            const SizedBox(height: 16),
+                            const Divider(),
+                            const SizedBox(height: 8),
+                            Center(
+                              child: FilledButton.icon(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.check),
+                                label: const Text('Close'),
+                              ),
+                            ),
+                            // Add action buttons for edit and delete
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.edit),
+                                  label: const Text('Edit'),
+                                  onPressed: () {
+                                    // Get a reference to these before closing modal
+                                    final transactionToEdit = transaction;
+                                    final currentContext = context;
+
+                                    // Close the modal
+                                    Navigator.pop(context);
+
+                                    // Show edit form using a more reliable approach
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                      UIHelpers.showTransactionForm(
+                                        currentContext,
+                                        transactionToEdit.type,
+                                        existingTransaction: transactionToEdit,
+                                      );
+                                    });
+                                  },
+                                ),
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.delete,
+                                      color: Colors.red),
+                                  label: const Text('Delete',
+                                      style: TextStyle(color: Colors.red)),
+                                  onPressed: () async {
+                                    // Close the modal first
+                                    Navigator.pop(context);
+
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      barrierDismissible: false,
+                                      builder: (BuildContext dialogContext) {
+                                        return AlertDialog(
+                                          title:
+                                              const Text('Delete Transaction'),
+                                          content: const Text(
+                                              'Are you sure you want to delete this transaction?'),
+                                          actions: <Widget>[
+                                            TextButton(
+                                              child: const Text('Cancel'),
+                                              onPressed: () {
+                                                Navigator.of(dialogContext)
+                                                    .pop(false);
+                                              },
+                                            ),
+                                            TextButton(
+                                              child: const Text('Delete',
+                                                  style: TextStyle(
+                                                      color: Colors.red)),
+                                              onPressed: () {
+                                                Navigator.of(dialogContext)
+                                                    .pop(true);
+                                              },
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+
+                                    if (confirm == true) {
+                                      // Show loading indicator
+                                      scaffoldMessenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 20,
+                                                height: 20,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              ),
+                                              SizedBox(width: 16),
+                                              Text('Deleting transaction...'),
+                                            ],
+                                          ),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+
+                                      try {
+                                        final success = await financeProvider
+                                            .deleteTransaction(transaction);
+
+                                        if (success) {
+                                          scaffoldMessenger.showSnackBar(
+                                            SnackBar(
+                                              content: const Text(
+                                                  'Transaction deleted'),
+                                              action: SnackBarAction(
+                                                label: 'Undo',
+                                                onPressed: () async {
+                                                  await financeProvider
+                                                      .addTransaction(
+                                                          transaction);
+                                                  if (authProvider.user?.uid !=
+                                                      null) {
+                                                    await financeProvider
+                                                        .initializeFinanceData(
+                                                            authProvider
+                                                                .user!.uid);
+                                                  }
+                                                },
+                                              ),
+                                            ),
+                                          );
+
+                                          // Refresh the data
+                                          if (authProvider.user?.uid != null) {
+                                            await financeProvider
+                                                .initializeFinanceData(
+                                                    authProvider.user!.uid);
+                                          }
+                                        } else {
+                                          scaffoldMessenger.showSnackBar(
+                                            SnackBar(
+                                              content: Text(financeProvider
+                                                      .error ??
+                                                  'Failed to delete transaction'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        scaffoldMessenger.showSnackBar(
+                                          SnackBar(
+                                            content: Text('Error: $e'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.edit),
                 title: const Text('Edit Transaction'),
                 onTap: () {
+                  // Get a reference to these before closing modal
+                  final transactionToEdit = transaction;
+                  final currentContext = context;
+
+                  // Close the modal
                   Navigator.pop(context);
-                  UIHelpers.showTransactionForm(
-                    context,
-                    transaction.type,
-                    existingTransaction: transaction,
-                  );
+
+                  // Show edit form using a more reliable approach
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    UIHelpers.showTransactionForm(
+                      currentContext,
+                      transactionToEdit.type,
+                      existingTransaction: transactionToEdit,
+                    );
+                  });
                 },
               ),
               ListTile(
@@ -688,151 +1459,103 @@ class TransactionListItem extends StatelessWidget {
                 title: const Text('Delete Transaction',
                     style: TextStyle(color: Colors.red)),
                 onTap: () async {
+                  // Close the modal first
                   Navigator.pop(context);
-                  final confirm = await UIHelpers.showConfirmationDialog(
+
+                  final confirm = await showDialog<bool>(
                     context: context,
-                    title: 'Delete Transaction',
-                    message:
-                        'Are you sure you want to delete this transaction?',
-                    confirmText: 'Delete',
-                    cancelText: 'Cancel',
+                    barrierDismissible: false,
+                    builder: (BuildContext dialogContext) {
+                      return AlertDialog(
+                        title: const Text('Delete Transaction'),
+                        content: const Text(
+                            'Are you sure you want to delete this transaction?'),
+                        actions: <Widget>[
+                          TextButton(
+                            child: const Text('Cancel'),
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop(false);
+                            },
+                          ),
+                          TextButton(
+                            child: const Text('Delete',
+                                style: TextStyle(color: Colors.red)),
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop(true);
+                            },
+                          ),
+                        ],
+                      );
+                    },
                   );
 
-                  if (confirm && context.mounted) {
-                    final financeProvider =
-                        Provider.of<FinanceProvider>(context, listen: false);
+                  if (confirm == true) {
+                    // Show loading indicator
+                    scaffoldMessenger.showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Text('Deleting transaction...'),
+                          ],
+                        ),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+
                     try {
-                      await financeProvider.deleteTransaction(transaction);
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e')),
+                      final success =
+                          await financeProvider.deleteTransaction(transaction);
+
+                      if (success) {
+                        scaffoldMessenger.showSnackBar(
+                          SnackBar(
+                            content: const Text('Transaction deleted'),
+                            action: SnackBarAction(
+                              label: 'Undo',
+                              onPressed: () async {
+                                await financeProvider
+                                    .addTransaction(transaction);
+                                if (authProvider.user?.uid != null) {
+                                  await financeProvider.initializeFinanceData(
+                                      authProvider.user!.uid);
+                                }
+                              },
+                            ),
+                          ),
+                        );
+
+                        // Refresh the data
+                        if (authProvider.user?.uid != null) {
+                          await financeProvider
+                              .initializeFinanceData(authProvider.user!.uid);
+                        }
+                      } else {
+                        scaffoldMessenger.showSnackBar(
+                          SnackBar(
+                            content: Text(financeProvider.error ??
+                                'Failed to delete transaction'),
+                            backgroundColor: Colors.red,
+                          ),
                         );
                       }
+                    } catch (e) {
+                      scaffoldMessenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Error: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
                     }
                   }
                 },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showTransactionDetails(
-      BuildContext context, app_model.Transaction transaction) {
-    final theme = Theme.of(context);
-    final isIncome = transaction.type == app_model.TransactionType.income;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Title and amount row
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      transaction.title,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                  ),
-                  Text(
-                    isIncome
-                        ? '+\$${transaction.amount.toStringAsFixed(2)}'
-                        : '-\$${transaction.amount.toStringAsFixed(2)}',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: isIncome ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Details list
-              DetailItem(
-                icon: Icons.calendar_today,
-                title: 'Date',
-                value: DateFormat('MMMM d, yyyy').format(transaction.date),
-              ),
-              DetailItem(
-                icon: Icons.access_time,
-                title: 'Time',
-                value: DateFormat('h:mm a').format(transaction.date),
-              ),
-              DetailItem(
-                icon: Icons.category,
-                title: 'Category',
-                value: transaction.category ?? 'Uncategorized',
-              ),
-              if (transaction.note != null && transaction.note!.isNotEmpty)
-                DetailItem(
-                  icon: Icons.notes,
-                  title: 'Notes',
-                  value: transaction.note!,
-                ),
-
-              const SizedBox(height: 24),
-
-              // Action buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Edit'),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      UIHelpers.showTransactionForm(
-                        context,
-                        transaction.type,
-                        existingTransaction: transaction,
-                      );
-                    },
-                  ),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      final confirm = await UIHelpers.showConfirmationDialog(
-                        context: context,
-                        title: 'Delete Transaction',
-                        message:
-                            'Are you sure you want to delete this transaction?',
-                        confirmText: 'Delete',
-                        cancelText: 'Cancel',
-                      );
-
-                      if (confirm && context.mounted) {
-                        final financeProvider = Provider.of<FinanceProvider>(
-                            context,
-                            listen: false);
-                        try {
-                          await financeProvider.deleteTransaction(transaction);
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: $e')),
-                            );
-                          }
-                        }
-                      }
-                    },
-                  ),
-                ],
               ),
             ],
           ),
