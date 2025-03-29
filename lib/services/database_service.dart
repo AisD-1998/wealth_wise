@@ -136,64 +136,66 @@ class DatabaseService {
   /// Update an existing transaction in the database
   Future<bool> updateTransaction(
       app_transaction.Transaction transaction) async {
-    if (transaction.id == null || transaction.id!.isEmpty) {
-      _logger.warning('Attempted to update transaction with empty ID');
-      return false;
-    }
-
     try {
-      final docRef = _transactionsCollection.doc(transaction.id);
+      _logger.info('Updating transaction: ${transaction.id}');
+      _logger.info('Transaction data: $transaction');
 
-      // Get the existing transaction for comparison
-      final docSnapshot = await docRef.get();
-      if (!docSnapshot.exists) {
-        _logger.warning('Transaction not found: ${transaction.id}');
+      if (transaction.id == null || transaction.id!.isEmpty) {
+        _logger.warning('Transaction ID is required for update');
         return false;
       }
 
-      // Verify category exists or use "Other"
-      String categoryValue = transaction.category ?? 'Other';
-      bool categoryExists = false;
+      // Verify the transaction exists
+      final doc = await _transactionsCollection.doc(transaction.id).get();
+      if (!doc.exists) {
+        _logger.warning('Transaction not found with ID: ${transaction.id}');
+        return false;
+      }
 
-      try {
-        // Check if we're using a category name
-        final categorySnapshot = await _categoriesCollection
-            .where('name', isEqualTo: categoryValue)
-            .limit(1)
-            .get();
+      _logger.info('Existing transaction data: ${doc.data()}');
 
-        if (categorySnapshot.docs.isNotEmpty) {
-          categoryExists = true;
+      // Verify category exists if provided
+      if (transaction.category != null && transaction.category!.isNotEmpty) {
+        final categoryExists = await _verifyCategoryExists(
+          transaction.userId,
+          transaction.category!,
+        );
+
+        if (!categoryExists) {
+          _logger.warning('Category not found: ${transaction.category}');
+          // We still allow the update even if category doesn't exist
+        } else {
+          _logger.info('Category found: ${transaction.category}');
         }
-      } catch (e) {
-        _logger.warning('Error checking category existence: $e');
       }
 
-      if (!categoryExists) {
-        _logger
-            .info('Category not found: $categoryValue, using "Other" instead');
-        categoryValue = 'Other';
-      }
-
-      // Create a map specifically for the update to ensure correct data types
+      // Create a map with the proper data types
       Map<String, dynamic> updateData = {
         'title': transaction.title,
         'amount': transaction.amount,
         'date': Timestamp.fromDate(transaction.date),
-        'type': transaction.type == app_transaction.TransactionType.income
-            ? 'income'
-            : 'expense',
-        'category': categoryValue,
+        'type': transaction.type.toString().split('.').last,
+        'category': transaction.category,
         'userId': transaction.userId,
         'note': transaction.note,
-        'updatedAt': Timestamp.now(),
-        'contributesToGoal': transaction.contributesToGoal,
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+        // Calculate contributesToGoal explicitly based on type and goalId
+        'contributesToGoal':
+            transaction.type == app_transaction.TransactionType.income &&
+                transaction.goalId != null &&
+                transaction.goalId!.isNotEmpty,
       };
 
-      // Update the transaction in Firestore
-      await docRef.update(updateData);
+      // Only include goalId if it's not null
+      if (transaction.goalId != null) {
+        updateData['goalId'] = transaction.goalId;
+      }
 
-      _logger.info('Updated transaction: ${transaction.id}');
+      await _transactionsCollection.doc(transaction.id).update(updateData);
+
+      _logger.info(
+          'Updated transaction data: ${(await _transactionsCollection.doc(transaction.id).get()).data()}');
+      _logger.info('Transaction updated successfully: ${transaction.id}');
       return true;
     } catch (e) {
       _logger.severe('Error updating transaction: $e');
@@ -682,6 +684,21 @@ class DatabaseService {
     } catch (e) {
       _logger.severe('Error initializing default categories: $e');
       throw Exception('Failed to initialize default categories: $e');
+    }
+  }
+
+  Future<bool> _verifyCategoryExists(String userId, String categoryName) async {
+    try {
+      final query = await _categoriesCollection
+          .where('userId', isEqualTo: userId)
+          .where('name', isEqualTo: categoryName)
+          .limit(1)
+          .get();
+
+      return query.docs.isNotEmpty;
+    } catch (e) {
+      _logger.warning('Error checking category existence: $e');
+      return false;
     }
   }
 }

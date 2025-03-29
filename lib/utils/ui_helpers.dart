@@ -7,9 +7,12 @@ import '../models/saving_goal.dart';
 import '../providers/finance_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/category_provider.dart';
+import 'package:logging/logging.dart';
 
 /// Utility class for common UI helper methods
 class UIHelpers {
+  static final _logger = Logger('UIHelpers');
+
   /// Shows a modal bottom sheet with a form to add a new transaction.
   static Future<void> showTransactionForm(
     BuildContext context,
@@ -31,6 +34,7 @@ class UIHelpers {
     TimeOfDay selectedTime = TimeOfDay.now();
     String? selectedCategory;
     bool contributesToGoal = false; // Add for goal contributions
+    String? selectedGoalId; // Track the selected goal ID
 
     // If editing an existing transaction, pre-fill the form
     if (existingTransaction != null) {
@@ -42,171 +46,103 @@ class UIHelpers {
       dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
       selectedCategory = existingTransaction.category;
       contributesToGoal = existingTransaction.contributesToGoal;
+      selectedGoalId = existingTransaction.goalId; // Set the initial goal ID
     } else {
       dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
     }
 
-    void saveTransaction(BuildContext innerContext) async {
-      if (formKey.currentState!.validate()) {
-        final navigator = Navigator.of(innerContext);
-        // Close the form first
-        navigator.pop();
+    void saveTransaction(BuildContext innerContext) {
+      if (!formKey.currentState!.validate()) {
+        return;
+      }
 
-        // Show loading indicator
+      final userId = authProvider.user?.uid;
+      if (userId == null) {
         scaffoldMessenger.showSnackBar(
           const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Text('Saving changes...'),
-              ],
-            ),
-            duration: Duration(seconds: 2),
+            content: Text('User not authenticated. Please log in again.'),
+            backgroundColor: Colors.red,
           ),
         );
+        return;
+      }
 
-        final userId = authProvider.user?.uid;
-        if (userId != null) {
-          final amount = double.parse(amountController.text);
-          final date = DateTime(
-            selectedDate.year,
-            selectedDate.month,
-            selectedDate.day,
-            selectedTime.hour,
-            selectedTime.minute,
-          );
+      final amount = double.parse(amountController.text);
+      final date = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      );
 
-          try {
-            bool success;
+      // Create the transaction object
+      final transaction = app_model.Transaction(
+        id: existingTransaction?.id,
+        title: titleController.text,
+        amount: amount,
+        type: type,
+        date: date,
+        category: selectedCategory,
+        note: noteController.text.isEmpty ? null : noteController.text,
+        userId: userId,
+        goalId: type == app_model.TransactionType.income && contributesToGoal
+            ? selectedGoalId
+            : null,
+      );
 
-            if (existingTransaction != null) {
-              // Update existing transaction
-              final updatedTransaction = app_model.Transaction(
-                id: existingTransaction.id,
-                title: titleController.text,
-                amount: amount,
-                type: type,
-                date: date,
-                category: selectedCategory,
-                note: noteController.text.isEmpty ? null : noteController.text,
-                userId: userId,
-                goalId: type == app_model.TransactionType.income &&
-                        contributesToGoal
-                    ? existingTransaction.goalId
-                    : null,
-              );
+      // Flag to remember whether we're updating or creating a new transaction
+      final isUpdate = existingTransaction != null;
 
-              success =
-                  await financeProvider.updateTransaction(updatedTransaction);
+      // If this is an income transaction with a goal, check if it will exceed the goal
+      if (transaction.type == app_model.TransactionType.income &&
+          contributesToGoal &&
+          selectedGoalId != null) {
+        final matchingGoals = financeProvider.savingGoals
+            .where((g) => g.id == selectedGoalId)
+            .toList();
 
-              if (success) {
-                // Reload data
-                await financeProvider.initializeFinanceData(userId);
+        if (matchingGoals.isNotEmpty) {
+          final selectedGoal = matchingGoals.first;
+          final willExceedTarget =
+              (selectedGoal.currentAmount + amount) > selectedGoal.targetAmount;
 
-                // If this is an income transaction with a linked goal, contribute to the goal
-                if (type == app_model.TransactionType.income &&
-                    contributesToGoal &&
-                    financeProvider.savingGoals.isNotEmpty) {
-                  // Find the goal
-                  final goalId = updatedTransaction.goalId ??
-                      financeProvider.savingGoals.first.id;
-                  final goal = financeProvider.savingGoals.firstWhere(
-                      (g) => g.id == goalId,
-                      orElse: () => financeProvider.savingGoals.first);
+          if (willExceedTarget) {
+            final overAmount = (selectedGoal.currentAmount + amount) -
+                selectedGoal.targetAmount;
 
-                  // Contribute the amount to the goal
-                  await financeProvider.contributeIncomeToSavingGoal(
-                      goal, amount);
-                }
+            // Close the form first, then handle the rest
+            Navigator.of(innerContext).pop();
 
-                scaffoldMessenger.showSnackBar(
-                  const SnackBar(
-                    content: Text('Transaction updated successfully'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else {
-                scaffoldMessenger.showSnackBar(
-                  SnackBar(
-                    content: Text(financeProvider.error ??
-                        'Failed to update transaction'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            } else {
-              // Create new transaction
-              final transaction = app_model.Transaction(
-                title: titleController.text,
-                amount: amount,
-                type: type,
-                date: date,
-                category: selectedCategory,
-                note: noteController.text.isEmpty ? null : noteController.text,
-                userId: userId,
-                goalId: type == app_model.TransactionType.income &&
-                        contributesToGoal
-                    ? financeProvider.savingGoals.isNotEmpty
-                        ? financeProvider.savingGoals.first.id
-                        : null
-                    : null,
-              );
-
-              success = await financeProvider.addTransaction(transaction);
-
-              if (success) {
-                // Reload data
-                await financeProvider.initializeFinanceData(userId);
-
-                // If this is an income transaction with a linked goal, contribute to the goal
-                if (type == app_model.TransactionType.income &&
-                    contributesToGoal &&
-                    financeProvider.savingGoals.isNotEmpty) {
-                  // Find the goal
-                  final goalId = transaction.goalId ??
-                      financeProvider.savingGoals.first.id;
-                  final goal = financeProvider.savingGoals.firstWhere(
-                      (g) => g.id == goalId,
-                      orElse: () => financeProvider.savingGoals.first);
-
-                  // Contribute the amount to the goal
-                  await financeProvider.contributeIncomeToSavingGoal(
-                      goal, amount);
-                }
-
-                scaffoldMessenger.showSnackBar(
-                  const SnackBar(
-                    content: Text('Transaction added successfully'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else {
-                scaffoldMessenger.showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        financeProvider.error ?? 'Failed to add transaction'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            }
-          } catch (e) {
-            scaffoldMessenger.showSnackBar(
-              SnackBar(
-                content: Text('Error: $e'),
-                backgroundColor: Colors.red,
-              ),
+            // Now show the dialog with parent context
+            _checkGoalAndProcessTransaction(
+              context: context, // Use the parent context
+              selectedGoal: selectedGoal,
+              amount: amount,
+              overAmount: overAmount,
+              transaction: transaction,
+              isUpdate: isUpdate,
+              userId: userId,
+              financeProvider: financeProvider,
+              scaffoldMessenger: scaffoldMessenger,
             );
+
+            return;
           }
         }
       }
+
+      // No goal check needed, just pop the form
+      Navigator.of(innerContext).pop();
+
+      // Process the transaction without any additional checks
+      _processTransaction(
+        transaction: transaction,
+        isUpdate: isUpdate,
+        userId: userId,
+        financeProvider: financeProvider,
+        scaffoldMessenger: scaffoldMessenger,
+      );
     }
 
     Future<void> selectDate(
@@ -403,15 +339,15 @@ class UIHelpers {
                               prefixIcon: Icon(Icons.savings),
                             ),
                             hint: const Text('Select a goal (optional)'),
-                            value: contributesToGoal
-                                ? financeProvider.savingGoals.first.id
-                                : null,
+                            value: selectedGoalId,
                             items: [
                               const DropdownMenuItem<String?>(
                                 value: null,
                                 child: Text('None'),
                               ),
                               ...financeProvider.savingGoals.map((goal) {
+                                _logger.info(
+                                    "Goal in dropdown: ${goal.title} (${goal.id})");
                                 return DropdownMenuItem<String?>(
                                   value: goal.id,
                                   child: Text(goal.title),
@@ -420,19 +356,28 @@ class UIHelpers {
                             ],
                             onChanged: (goalId) {
                               setState(() {
+                                selectedGoalId = goalId;
                                 contributesToGoal = goalId != null;
-                                if (contributesToGoal) {
-                                  // Find the goal with this ID
-                                  final selectedGoal = financeProvider
-                                      .savingGoals
-                                      .firstWhere((goal) => goal.id == goalId);
 
-                                  // Set the transaction title to reflect the goal contribution
-                                  if (titleController.text.isEmpty ||
-                                      titleController.text
-                                          .startsWith('Contribution to ')) {
-                                    titleController.text =
-                                        'Contribution to ${selectedGoal.title}';
+                                if (contributesToGoal && goalId != null) {
+                                  // Find the goal with this ID
+                                  final matchingGoals = financeProvider
+                                      .savingGoals
+                                      .where((goal) => goal.id == goalId)
+                                      .toList();
+
+                                  if (matchingGoals.isNotEmpty) {
+                                    final selectedGoal = matchingGoals.first;
+                                    _logger.info(
+                                        "Selected goal: ${selectedGoal.title} (${selectedGoal.id})");
+
+                                    // Set the transaction title to reflect the goal contribution
+                                    if (titleController.text.isEmpty ||
+                                        titleController.text
+                                            .startsWith('Contribution to ')) {
+                                      titleController.text =
+                                          'Contribution to ${selectedGoal.title}';
+                                    }
                                   }
                                 }
                               });
@@ -714,6 +659,144 @@ class UIHelpers {
       } else {
         return ['Salary', 'Business', 'Investments', 'Other Income'];
       }
+    }
+  }
+
+  // This static method handles goal confirmation and transaction processing
+  static void _checkGoalAndProcessTransaction({
+    required BuildContext context,
+    required SavingGoal selectedGoal,
+    required double amount,
+    required double overAmount,
+    required app_model.Transaction transaction,
+    required bool isUpdate,
+    required String userId,
+    required FinanceProvider financeProvider,
+    required ScaffoldMessengerState scaffoldMessenger,
+  }) async {
+    final shouldProceed = await showConfirmationDialog(
+      context: context,
+      title: 'Goal Will Be Exceeded',
+      message:
+          'This goal "${selectedGoal.title}" is already at \$${selectedGoal.currentAmount.toStringAsFixed(2)} of \$${selectedGoal.targetAmount.toStringAsFixed(2)}. Adding \$${amount.toStringAsFixed(2)} will exceed the target by \$${overAmount.toStringAsFixed(2)}. Do you wish to continue?',
+      confirmText: 'Continue',
+      cancelText: 'Cancel',
+    );
+
+    if (!shouldProceed) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Transaction operation canceled'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    _processTransaction(
+      transaction: transaction,
+      isUpdate: isUpdate,
+      userId: userId,
+      financeProvider: financeProvider,
+      scaffoldMessenger: scaffoldMessenger,
+    );
+  }
+
+  // This static method handles the actual transaction processing
+  static void _processTransaction({
+    required app_model.Transaction transaction,
+    required bool isUpdate,
+    required String userId,
+    required FinanceProvider financeProvider,
+    required ScaffoldMessengerState scaffoldMessenger,
+  }) async {
+    // Show loading indicator
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(width: 16),
+            Text('Saving changes...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      // Process the transaction
+      if (isUpdate) {
+        // Update existing transaction
+        final result = await financeProvider.updateTransaction(transaction);
+
+        if (result['success']) {
+          // Reload data
+          await financeProvider.initializeFinanceData(userId);
+
+          if (result['goalChanged'] ||
+              result['goalAdded'] ||
+              result['goalRemoved'] ||
+              result['amountChanged']) {
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Text(result['message']),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } else {
+            scaffoldMessenger.showSnackBar(
+              const SnackBar(
+                content: Text('Transaction updated successfully'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text(result['message']),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        // Create new transaction
+        final success = await financeProvider.addTransaction(transaction);
+
+        if (success) {
+          // Reload data
+          await financeProvider.initializeFinanceData(userId);
+
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Transaction added successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content:
+                  Text(financeProvider.error ?? 'Failed to add transaction'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 }

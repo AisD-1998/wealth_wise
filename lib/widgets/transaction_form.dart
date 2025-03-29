@@ -42,6 +42,9 @@ class _TransactionFormState extends State<TransactionForm> {
   void initState() {
     super.initState();
     _initForm();
+
+    // Add listener to amount field to update UI
+    _amountController.addListener(_updateUI);
   }
 
   void _initForm() {
@@ -59,8 +62,49 @@ class _TransactionFormState extends State<TransactionForm> {
       _selectedType = widget.transaction!.type;
       _selectedCategory = widget.transaction!.category;
       _selectedDate = widget.transaction!.date;
+
+      debugPrint('Init form for editing transaction ${widget.transaction!.id}');
+      debugPrint('Transaction type: ${widget.transaction!.type}');
+      debugPrint('Transaction goal ID: ${widget.transaction!.goalId}');
+
+      // Initialize saving goal fields if this is an income transaction with a goalId
+      if (widget.transaction!.type == TransactionType.income) {
+        if (widget.transaction!.goalId != null &&
+            widget.transaction!.goalId!.isNotEmpty) {
+          _saveToSavingsGoal = true;
+          debugPrint(
+              'Setting _saveToSavingsGoal to true for goal ID: ${widget.transaction!.goalId}');
+
+          // We'll load the actual SavingGoal object when the widget is built
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (mounted) {
+              final financeProvider =
+                  Provider.of<FinanceProvider>(context, listen: false);
+              final goalId = widget.transaction!.goalId!;
+              debugPrint('Fetching saving goal with ID: $goalId');
+              final goal = await financeProvider.getSavingGoalById(goalId);
+
+              if (mounted && goal != null) {
+                debugPrint('Found goal: ${goal.title} with ID: ${goal.id}');
+                setState(() {
+                  _selectedSavingGoal = goal;
+                });
+              } else {
+                debugPrint('Goal not found with ID: $goalId');
+              }
+            }
+          });
+        } else {
+          // Ensure saving goal is disabled if transaction is income but has no goal
+          _saveToSavingsGoal = false;
+          _selectedSavingGoal = null;
+          debugPrint(
+              'Income transaction has no goal, _saveToSavingsGoal set to false');
+        }
+      }
     } else if (widget.initialType != null) {
       _selectedType = widget.initialType!;
+      debugPrint('New transaction with initial type: $_selectedType');
     }
 
     // Force a re-fetch of categories to ensure we have the latest data
@@ -76,136 +120,22 @@ class _TransactionFormState extends State<TransactionForm> {
 
   @override
   void dispose() {
+    _amountController.removeListener(_updateUI);
     _titleController.dispose();
     _amountController.dispose();
     _noteController.dispose();
     super.dispose();
   }
 
-  Future<void> _saveTransaction() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final userId = context.read<AuthProvider>().user?.uid;
-      if (userId == null) {
-        _showError('User ID not found. Please log in.');
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      final financeProvider =
-          Provider.of<FinanceProvider>(context, listen: false);
-
-      // Also make sure we have access to the category provider
-      final categoryProvider =
-          Provider.of<CategoryProvider>(context, listen: false);
-
-      // Check if category provider has loaded categories
-      if (categoryProvider.categories.isEmpty) {
-        await categoryProvider.loadCategoriesByUser(userId);
-      }
-
-      if (!mounted) return;
-
-      final double amount = double.parse(_amountController.text);
-      bool success = false;
-
-      // Log current values for debugging
-      debugPrint('Transaction form - saving with category: $_selectedCategory');
-
-      // Cleanup category value - make sure it's not ID but name
-      if (_selectedCategory != null) {
-        _selectedCategory = _selectedCategory!.trim();
-
-        // If category doesn't exist in available categories, set to "Other"
-        final availableCategories =
-            categoryProvider.categories.map((cat) => cat.name).toSet().toList();
-
-        if (!availableCategories.contains(_selectedCategory)) {
-          debugPrint(
-              'Category not found in available categories, using "Other" instead');
-          _selectedCategory = "Other";
-        }
-      }
-
-      if (widget.transaction == null) {
-        // Create new transaction
-        final newTransaction = Transaction(
-          userId: userId,
-          title: _titleController.text.trim(),
-          amount: amount,
-          date: _selectedDate,
-          type: _selectedType,
-          category: _selectedCategory,
-          note: _noteController.text.trim(),
-          goalId: _selectedType == TransactionType.income &&
-                  _saveToSavingsGoal &&
-                  _selectedSavingGoal != null
-              ? _selectedSavingGoal!.id
-              : null,
-        );
-
-        success = await financeProvider.addTransaction(newTransaction);
-
-        // If this is an income saving goal contribution, update the saving goal too
-        if (success &&
-            _selectedType == TransactionType.income &&
-            _saveToSavingsGoal &&
-            _selectedSavingGoal != null) {
-          await financeProvider.contributeIncomeToSavingGoal(
-              _selectedSavingGoal!, amount);
-        }
-      } else {
-        // Update existing transaction
-        final updatedTransaction = widget.transaction!.copyWith(
-          title: _titleController.text.trim(),
-          amount: amount,
-          date: _selectedDate,
-          type: _selectedType,
-          category: _selectedCategory,
-          note: _noteController.text.trim(),
-          goalId: _selectedType == TransactionType.income &&
-                  _saveToSavingsGoal &&
-                  _selectedSavingGoal != null
-              ? _selectedSavingGoal!.id
-              : null,
-        );
-
-        success = await financeProvider.updateTransaction(updatedTransaction);
-      }
-
-      if (success) {
-        // Refresh the categories after transaction is saved to update spent amounts
-        if (_selectedType == TransactionType.expense &&
-            _selectedCategory != null &&
-            _selectedCategory!.isNotEmpty) {
-          await categoryProvider.loadCategoriesByUser(userId);
-        }
-
-        if (widget.onComplete != null) {
-          widget.onComplete!(true);
-        }
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      } else {
-        _showError(
-          financeProvider.error ?? 'Failed to save transaction',
-        );
-      }
-    } catch (e) {
-      _showError('Error: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+  void _updateUI() {
+    if (mounted) {
+      setState(() {
+        // This will cause the UI to rebuild with the new amount
+      });
     }
   }
 
+  // Show error message
   void _showError(String message) {
     if (!mounted) return;
 
@@ -215,6 +145,124 @@ class _TransactionFormState extends State<TransactionForm> {
         backgroundColor: Colors.red,
       ),
     );
+  }
+
+  Future<void> _saveTransaction() async {
+    if (_formKey.currentState!.validate()) {
+      _formKey.currentState!.save();
+
+      setState(() => _isLoading = true);
+
+      try {
+        final userId = context.read<AuthProvider>().user?.uid;
+        if (userId == null) {
+          _showError('User ID not found. Please log in.');
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        final amount = double.parse(_amountController.text);
+        final transactionType = _selectedType;
+        final selectedCategory = _selectedCategory;
+        final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
+
+        // Enhanced logging for debugging
+        debugPrint('===== TRANSACTION SAVE DETAILS =====');
+        debugPrint('Title: ${_titleController.text.trim()}');
+        debugPrint('Amount: $amount');
+        debugPrint('Type: $transactionType');
+        debugPrint('Category: $selectedCategory');
+        debugPrint('Save to goal: $_saveToSavingsGoal');
+
+        if (selectedGoal != null) {
+          debugPrint('Selected goal for contribution:');
+          debugPrint('- Title: ${selectedGoal.title}');
+          debugPrint('- ID: ${selectedGoal.id}');
+          debugPrint('- Current Amount: ${selectedGoal.currentAmount}');
+          debugPrint('- Target Amount: ${selectedGoal.targetAmount}');
+        } else {
+          debugPrint('No goal selected for this transaction');
+        }
+
+        final String? goalIdToUse =
+            transactionType == TransactionType.income && selectedGoal != null
+                ? selectedGoal.id
+                : null;
+
+        debugPrint('FINAL GOAL ID TO USE: $goalIdToUse');
+
+        final transaction = Transaction(
+          id: widget.transaction?.id,
+          userId: userId,
+          amount: amount,
+          date: _selectedDate,
+          title: _titleController.text.trim(),
+          type: transactionType,
+          category: selectedCategory,
+          // Only set goalId for income transactions with selected goal
+          goalId: goalIdToUse,
+          note: _noteController.text.trim(),
+        );
+
+        debugPrint('Transaction object goal ID: ${transaction.goalId}');
+        debugPrint('===============================');
+
+        bool success = false;
+        final financeProvider =
+            Provider.of<FinanceProvider>(context, listen: false);
+
+        // Handle case where transaction is being edited
+        if (widget.transaction != null) {
+          debugPrint(
+              'Updating existing transaction with ID: ${widget.transaction!.id}');
+          debugPrint('Previous goal ID: ${widget.transaction!.goalId}');
+          debugPrint('New goal ID: ${transaction.goalId}');
+          final result = await financeProvider.updateTransaction(transaction);
+          success = result['success'] ?? false;
+        }
+        // Handle case for new transaction
+        else {
+          debugPrint('Creating new transaction');
+          if (transactionType == TransactionType.income &&
+              selectedGoal != null) {
+            // Use the specialized method for transactions with goals
+            debugPrint(
+                'Using addTransactionWithGoal method with goal ID: ${selectedGoal.id}');
+            success = await financeProvider.addTransactionWithGoal(
+                transaction, selectedGoal);
+          } else {
+            // Use regular method for transactions without goals
+            debugPrint('Using regular addTransaction method (no goal)');
+            success = await financeProvider.addTransaction(transaction);
+          }
+        }
+
+        if (success) {
+          if (mounted && widget.onComplete != null) {
+            widget.onComplete!(true);
+          }
+          if (mounted) {
+            Navigator.of(context).pop();
+          }
+        } else {
+          final error = financeProvider.error ?? 'Failed to save transaction';
+          _showError(error);
+          if (mounted && widget.onComplete != null) {
+            widget.onComplete!(false);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error saving transaction: $e');
+        _showError(e.toString());
+        if (mounted && widget.onComplete != null) {
+          widget.onComplete!(false);
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
   }
 
   Future<void> _pickDate() async {
@@ -447,46 +495,106 @@ class _TransactionFormState extends State<TransactionForm> {
                   maxLines: 2,
                 ),
 
-                // Add Saving Goal selection for Income transactions
-                if (_selectedType == TransactionType.income &&
-                    savingGoals.isNotEmpty) ...[
+                // Only show saving goal options for income transactions
+                if (_selectedType == TransactionType.income) ...[
                   const SizedBox(height: 16),
-                  DropdownButtonFormField<SavingGoal?>(
-                    decoration: const InputDecoration(
-                      labelText: 'Contribute to Saving Goal',
-                      hintText: 'Select a goal (optional)',
-                      prefixIcon: Icon(Icons.savings),
-                    ),
-                    value: _selectedSavingGoal,
-                    items: [
-                      const DropdownMenuItem<SavingGoal?>(
-                        value: null,
-                        child: Text('None'),
-                      ),
-                      ...savingGoals.map((goal) {
-                        return DropdownMenuItem<SavingGoal?>(
-                          value: goal,
-                          child: Text(goal.title),
-                        );
-                      }),
-                    ],
+                  CheckboxListTile(
+                    title: const Text('Save to Saving Goal'),
+                    value: _saveToSavingsGoal,
                     onChanged: (value) {
                       setState(() {
-                        _selectedSavingGoal = value;
-                        _saveToSavingsGoal = value != null;
+                        _saveToSavingsGoal = value ?? false;
 
-                        // Optionally set the title to reflect the goal contribution
-                        if (_saveToSavingsGoal && _selectedSavingGoal != null) {
-                          if (_titleController.text.isEmpty ||
-                              _titleController.text
-                                  .startsWith('Contribution to ')) {
-                            _titleController.text =
-                                'Contribution to ${_selectedSavingGoal!.title}';
-                          }
+                        // If turning off, clear selected goal
+                        if (!_saveToSavingsGoal) {
+                          _selectedSavingGoal = null;
                         }
                       });
                     },
+                    controlAffinity: ListTileControlAffinity.leading,
                   ),
+                  if (_saveToSavingsGoal && savingGoals.isNotEmpty) ...[
+                    DropdownButtonFormField<SavingGoal?>(
+                      decoration: InputDecoration(
+                        labelText: 'Saving Goal',
+                        border: OutlineInputBorder(),
+                        filled: true,
+                        prefixIcon: Icon(Icons.savings),
+                        helperText: _selectedSavingGoal != null
+                            ? 'Current balance: \$${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}'
+                            : 'Select a goal to contribute to',
+                      ),
+                      value: _selectedSavingGoal,
+                      items: [
+                        const DropdownMenuItem<SavingGoal?>(
+                          value: null,
+                          child: Text('None'),
+                        ),
+                        ...savingGoals.map((goal) {
+                          // Add detailed logging for each goal in the dropdown
+                          debugPrint(
+                              'DROPDOWN GOAL: ${goal.title} (ID: ${goal.id})');
+                          return DropdownMenuItem<SavingGoal?>(
+                            value: goal,
+                            child: Row(
+                              children: [
+                                Text(goal.title),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '(${(goal.currentAmount / goal.targetAmount * 100).toStringAsFixed(0)}%)',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        })
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedSavingGoal = value;
+                          debugPrint(
+                              'GOAL SELECTED: ${value?.title} (ID: ${value?.id})');
+                          // Log all details of the selected goal
+                          if (value != null) {
+                            debugPrint('SELECTED GOAL DETAILS:');
+                            debugPrint('- Title: ${value.title}');
+                            debugPrint('- ID: ${value.id}');
+                            debugPrint(
+                                '- Current Amount: ${value.currentAmount}');
+                            debugPrint(
+                                '- Target Amount: ${value.targetAmount}');
+                            _saveToSavingsGoal = true;
+                          }
+                        });
+                      },
+                    ),
+                    if (_selectedSavingGoal != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Contributing \$${_amountController.text.isEmpty ? "0.00" : double.tryParse(_amountController.text)?.toStringAsFixed(2) ?? "0.00"} to "${_selectedSavingGoal!.title}"',
+                                style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ],
 
                 const SizedBox(height: 24),

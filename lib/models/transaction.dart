@@ -17,7 +17,7 @@ class Transaction {
   final String? note;
   final String? receiptUrl;
   final bool includedInTotals;
-  final bool contributesToGoal;
+  final String? goalId;
 
   static final Logger _logger = Logger('Transaction');
 
@@ -32,7 +32,7 @@ class Transaction {
     this.note,
     this.receiptUrl,
     this.includedInTotals = true,
-    this.contributesToGoal = false,
+    this.goalId,
   });
 
   factory Transaction.fromMap(Map<String, dynamic> map, String id) {
@@ -50,7 +50,7 @@ class Transaction {
         note: map['note'],
         receiptUrl: map['receiptUrl'],
         includedInTotals: map['includedInTotals'] ?? true,
-        contributesToGoal: map['contributesToGoal'] ?? false,
+        goalId: map['goalId'],
       );
       return transaction;
     } catch (e) {
@@ -71,7 +71,7 @@ class Transaction {
       'note': note,
       'receiptUrl': receiptUrl,
       'includedInTotals': includedInTotals,
-      'contributesToGoal': contributesToGoal,
+      'goalId': goalId,
     };
   }
 
@@ -86,7 +86,7 @@ class Transaction {
     String? note,
     String? receiptUrl,
     bool? includedInTotals,
-    bool? contributesToGoal,
+    String? goalId,
   }) {
     return Transaction(
       id: id ?? this.id,
@@ -99,13 +99,17 @@ class Transaction {
       note: note ?? this.note,
       receiptUrl: receiptUrl ?? this.receiptUrl,
       includedInTotals: includedInTotals ?? this.includedInTotals,
-      contributesToGoal: contributesToGoal ?? this.contributesToGoal,
+      goalId: goalId ?? this.goalId,
     );
   }
 
   // For debugging purposes
   String toDebugString() {
     return 'Transaction(id: $id, title: $title, amount: $amount, date: $date, '
-        'type: $type, category: $category, userId: $userId, includedInTotals: $includedInTotals, contributesToGoal: $contributesToGoal)';
+        'type: $type, category: $category, userId: $userId, includedInTotals: $includedInTotals, goalId: $goalId)';
   }
+
+  // Check if transaction contributes to a goal
+  bool get contributesToGoal =>
+      type == TransactionType.income && goalId != null && goalId!.isNotEmpty;
 }
