@@ -18,6 +18,8 @@ class Transaction {
   final String? receiptUrl;
   final bool includedInTotals;
   final String? goalId;
+  final double?
+      contributionPercentage; // Percentage of income to contribute to goal
 
   static final Logger _logger = Logger('Transaction');
 
@@ -33,6 +35,7 @@ class Transaction {
     this.receiptUrl,
     this.includedInTotals = true,
     this.goalId,
+    this.contributionPercentage = 100.0, // Default to 100% if not specified
   });
 
   factory Transaction.fromMap(Map<String, dynamic> map, String id) {
@@ -51,6 +54,8 @@ class Transaction {
         receiptUrl: map['receiptUrl'],
         includedInTotals: map['includedInTotals'] ?? true,
         goalId: map['goalId'],
+        contributionPercentage:
+            (map['contributionPercentage'] ?? 100.0).toDouble(),
       );
       return transaction;
     } catch (e) {
@@ -72,6 +77,7 @@ class Transaction {
       'receiptUrl': receiptUrl,
       'includedInTotals': includedInTotals,
       'goalId': goalId,
+      'contributionPercentage': contributionPercentage,
     };
   }
 
@@ -87,6 +93,7 @@ class Transaction {
     String? receiptUrl,
     bool? includedInTotals,
     String? goalId,
+    double? contributionPercentage,
   }) {
     return Transaction(
       id: id ?? this.id,
@@ -100,16 +107,24 @@ class Transaction {
       receiptUrl: receiptUrl ?? this.receiptUrl,
       includedInTotals: includedInTotals ?? this.includedInTotals,
       goalId: goalId ?? this.goalId,
+      contributionPercentage:
+          contributionPercentage ?? this.contributionPercentage,
     );
   }
 
   // For debugging purposes
   String toDebugString() {
     return 'Transaction(id: $id, title: $title, amount: $amount, date: $date, '
-        'type: $type, category: $category, userId: $userId, includedInTotals: $includedInTotals, goalId: $goalId)';
+        'type: $type, category: $category, userId: $userId, includedInTotals: $includedInTotals, '
+        'goalId: $goalId, contributionPercentage: $contributionPercentage)';
   }
 
   // Check if transaction contributes to a goal
   bool get contributesToGoal =>
       type == TransactionType.income && goalId != null && goalId!.isNotEmpty;
+
+  // Calculate contribution amount based on percentage
+  double get contributionAmount => contributesToGoal
+      ? (amount * (contributionPercentage ?? 100.0) / 100.0)
+      : 0.0;
 }

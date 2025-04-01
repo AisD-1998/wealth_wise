@@ -337,16 +337,6 @@ class SavingsScreen extends StatelessWidget {
                 // Action buttons
                 Row(
                   children: [
-                    if (!isCompleted)
-                      CustomActionButton(
-                        onPressed: () {
-                          _showAddToGoalDialog(context, goal);
-                        },
-                        label: 'Add Funds',
-                        icon: Icons.add_circle_outline,
-                        isSmall: true,
-                      ),
-                    const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.more_vert),
                       onPressed: () {
@@ -488,14 +478,6 @@ class SavingsScreen extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.add_circle_outline),
-                title: const Text('Add Funds'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showAddToGoalDialog(context, goal);
-                },
-              ),
-              ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text(
                   'Delete Goal',
@@ -508,84 +490,6 @@ class SavingsScreen extends StatelessWidget {
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  void _showAddToGoalDialog(BuildContext context, SavingGoal goal) {
-    final TextEditingController amountController = TextEditingController();
-    final financeProvider =
-        Provider.of<FinanceProvider>(context, listen: false);
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Add to ${goal.title}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Current: \$${goal.currentAmount.toStringAsFixed(2)} / \$${goal.targetAmount.toStringAsFixed(2)}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: amountController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  prefixIcon: Icon(Icons.attach_money),
-                  hintText: 'Enter amount to add',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            CustomActionButton(
-              onPressed: () => Navigator.pop(context),
-              label: 'Cancel',
-              icon: Icons.close,
-              isSmall: true,
-            ),
-            CustomActionButton(
-              onPressed: () async {
-                if (amountController.text.isNotEmpty) {
-                  final amount = double.tryParse(amountController.text);
-                  if (amount != null && amount > 0) {
-                    // Update the goal
-                    final success = await financeProvider.contributeSavingGoal(
-                        goal, amount);
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      if (success) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Added \$${amount.toStringAsFixed(2)} to ${goal.title}'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content:
-                                Text('Failed to add funds to ${goal.title}'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  }
-                }
-              },
-              label: 'Add Funds',
-              icon: Icons.check_circle_outline,
-              isSmall: true,
-            ),
-          ],
         );
       },
     );

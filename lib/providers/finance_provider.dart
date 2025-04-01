@@ -6,6 +6,7 @@ import 'package:wealth_wise/services/database_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/models/category.dart' as app_category;
+import '../utils/migration_helpers.dart';
 
 enum TimeFrame { day, week, month, year, all }
 
@@ -218,6 +219,15 @@ class FinanceProvider with ChangeNotifier {
 
     try {
       _userId = userId;
+
+      // Run category type migration if needed
+      try {
+        await MigrationHelpers.migrateCategoryTypes(userId);
+      } catch (migrationError) {
+        _logger.warning('Category migration error: $migrationError');
+        // Continue with initialization even if migration fails
+      }
+
       await fetchTransactions();
       await fetchSpendingCategories();
       await fetchSavingGoals();
@@ -315,313 +325,208 @@ class FinanceProvider with ChangeNotifier {
 
   // Handle transaction interactions with saving goals
   Future<Map<String, dynamic>> _handleSavingGoalTransaction(
-    app_model.Transaction oldTransaction,
-    app_model.Transaction newTransaction,
-  ) async {
+      app_model.Transaction oldTransaction,
+      app_model.Transaction newTransaction) async {
+    // Map to hold processing result
+    Map<String, dynamic> result = {'success': true};
+
     try {
-      _logger.severe('==== HANDLING SAVING GOAL TRANSACTION ====');
-      _logger.severe(
-          'Old transaction: ${oldTransaction.title} (${oldTransaction.id})');
-      _logger.severe('Old transaction goal ID: ${oldTransaction.goalId}');
-      _logger.severe('Old transaction amount: ${oldTransaction.amount}');
-      _logger.severe(
-          'New transaction: ${newTransaction.title} (${newTransaction.id})');
-      _logger.severe('New transaction goal ID: ${newTransaction.goalId}');
-      _logger.severe('New transaction amount: ${newTransaction.amount}');
+      final String? oldGoalId = oldTransaction.goalId;
+      final String? newGoalId = newTransaction.goalId;
 
-      Map<String, dynamic> result = {
-        'success': true,
-        'goalChanged': false,
-        'oldGoalName': null,
-        'newGoalName': null,
-        'amountChanged': false,
-      };
-
-      // Only income transactions can contribute to saving goals
-      if (oldTransaction.type != app_model.TransactionType.income &&
-          newTransaction.type != app_model.TransactionType.income) {
-        _logger.severe('No goal handling needed - not income transactions');
+      // Only process if this is an income transaction
+      if (newTransaction.type != app_model.TransactionType.income &&
+          oldTransaction.type != app_model.TransactionType.income) {
+        _logger.info('Not an income transaction, skipping goal processing');
         return result;
       }
 
-      String? oldGoalId = oldTransaction.goalId;
-      String? newGoalId = newTransaction.goalId;
+      _logger.info('_handleSavingGoalTransaction: Processing goals');
+      _logger.info('Old goal ID: $oldGoalId');
+      _logger.info('New goal ID: $newGoalId');
+      _logger.info('Old amount: ${oldTransaction.amount}');
+      _logger.info('New amount: ${newTransaction.amount}');
+      _logger.info(
+          'Old contribution %: ${oldTransaction.contributionPercentage}%');
+      _logger.info(
+          'New contribution %: ${newTransaction.contributionPercentage}%');
 
-      // Log available goals in memory
-      _logger.severe('Available goals in memory:');
-      for (final goal in _savingGoals) {
-        _logger.severe(
-            '- ${goal.title} (${goal.id}) - Amount: ${goal.currentAmount}');
-      }
+      // Calculate effective amounts that were/will be contributed
+      final double oldEffectiveAmount = oldTransaction.contributesToGoal
+          ? oldTransaction.amount *
+              (oldTransaction.contributionPercentage ?? 100.0) /
+              100.0
+          : 0.0;
 
-      // CASE 1: Same goal, different amount (e.g. edited amount)
-      if (oldGoalId != null &&
-          oldGoalId.isNotEmpty &&
+      final double newEffectiveAmount = newTransaction.contributesToGoal
+          ? newTransaction.amount *
+              (newTransaction.contributionPercentage ?? 100.0) /
+              100.0
+          : 0.0;
+
+      _logger.info('Old effective contribution: $oldEffectiveAmount');
+      _logger.info('New effective contribution: $newEffectiveAmount');
+
+      // CASE 1: No old goal, but new one added
+      if ((oldGoalId == null || oldGoalId.isEmpty) &&
           newGoalId != null &&
-          newGoalId.isNotEmpty &&
-          oldGoalId == newGoalId &&
-          oldTransaction.amount != newTransaction.amount) {
-        _logger.severe(
-            'CASE 1: Same goal, amount changed from ${oldTransaction.amount} to ${newTransaction.amount}');
+          newGoalId.isNotEmpty) {
+        _logger.info('CASE 1: Adding contribution to new goal');
 
-        // Get the goal
-        final goal = await getSavingGoalById(oldGoalId);
-        if (goal == null) {
-          _logger.severe('Goal not found: $oldGoalId');
-          return {'success': false, 'error': 'Goal not found: $oldGoalId'};
+        // Get the new goal
+        final newGoal = await getSavingGoalById(newGoalId);
+        if (newGoal == null) {
+          _logger.warning('New goal not found: $newGoalId');
+          result['success'] = false;
+          result['error'] = 'New goal not found: $newGoalId';
+          return result;
         }
 
-        _logger.severe(
-            'Found goal: ${goal.title} (${goal.id}) with amount ${goal.currentAmount}');
+        result['newGoalName'] = newGoal.title;
 
-        // Calculate difference
-        double difference = newTransaction.amount - oldTransaction.amount;
-        double newAmount = goal.currentAmount + difference;
-        if (newAmount < 0) newAmount = 0;
+        // Check if adding this transaction would cause the goal to be completed
+        final willExceedTarget = (newGoal.currentAmount + newEffectiveAmount) >=
+            newGoal.targetAmount;
+        result['willExceedTarget'] = willExceedTarget;
 
-        _logger.severe(
-            'Adjusting goal ${goal.title} by $difference: ${goal.currentAmount} → $newAmount');
-
-        // Update goal
-        final updatedGoal = goal.copyWith(currentAmount: newAmount);
-        final success = await _databaseService.updateSavingGoal(updatedGoal);
-
-        // Update local state
-        if (success) {
-          final index = _savingGoals.indexWhere((g) => g.id == oldGoalId);
-          if (index >= 0) {
-            _savingGoals[index] = updatedGoal;
-            _logger.severe('Updated goal in memory');
-          } else {
-            _logger.severe('Goal not found in memory, adding it');
-            _savingGoals.add(updatedGoal);
-          }
-
-          result['amountChanged'] = true;
-          result['goalName'] = goal.title;
-          result['amountDifference'] = difference;
-        } else {
-          _logger.severe('Failed to update goal in database');
-          return {
-            'success': false,
-            'error': 'Failed to update goal in database'
-          };
+        // Check if the goal is already completed
+        if (newGoal.isCompleted) {
+          _logger.warning('Adding to a completed goal: ${newGoal.title}');
+          result['isCompleted'] = true;
+          result['addedToCompletedGoal'] = true;
+          // Still add the contribution
         }
 
-        return result;
+        // Add contribution to the new goal
+        await addContributionToSavingGoal(newGoal, newTransaction.amount,
+            contributionPercentage: newTransaction.contributionPercentage);
+        result['goalAdded'] = true;
       }
 
-      // CASE 2: Changed from one goal to another
+      // CASE 2: Both old and new goals exist, but they're different
       else if (oldGoalId != null &&
           oldGoalId.isNotEmpty &&
           newGoalId != null &&
           newGoalId.isNotEmpty &&
           oldGoalId != newGoalId) {
-        _logger.severe('CASE 2: Goal changed from $oldGoalId to $newGoalId');
+        _logger.info('CASE 2: Changing from one goal to another');
 
-        // STEP 1: Remove from old goal
+        // Get both goals
         final oldGoal = await getSavingGoalById(oldGoalId);
-        if (oldGoal == null) {
-          _logger.severe('Old goal not found: $oldGoalId');
-          return {'success': false, 'error': 'Old goal not found: $oldGoalId'};
-        }
-
-        _logger.severe(
-            'Found old goal: ${oldGoal.title} (${oldGoal.id}) with amount ${oldGoal.currentAmount}');
-
-        double oldUpdatedAmount = oldGoal.currentAmount - oldTransaction.amount;
-        if (oldUpdatedAmount < 0) oldUpdatedAmount = 0;
-
-        _logger.severe(
-            'Removing ${oldTransaction.amount} from ${oldGoal.title}: ${oldGoal.currentAmount} → $oldUpdatedAmount');
-
-        final updatedOldGoal =
-            oldGoal.copyWith(currentAmount: oldUpdatedAmount);
-        final oldSuccess =
-            await _databaseService.updateSavingGoal(updatedOldGoal);
-
-        if (oldSuccess) {
-          // Update local state
-          final oldIndex = _savingGoals.indexWhere((g) => g.id == oldGoalId);
-          if (oldIndex >= 0) {
-            _savingGoals[oldIndex] = updatedOldGoal;
-            _logger.severe('Updated old goal in memory');
-          } else {
-            _logger.severe('Old goal not found in memory');
-          }
-
-          // Store goal name for UI feedback
-          result['oldGoalName'] = oldGoal.title;
-        } else {
-          _logger.severe('Failed to update old goal');
-          return {'success': false, 'error': 'Failed to update old goal'};
-        }
-
-        // STEP 2: Add to new goal
         final newGoal = await getSavingGoalById(newGoalId);
+
+        if (oldGoal == null) {
+          _logger.warning('Old goal not found: $oldGoalId');
+          result['success'] = false;
+          result['error'] = 'Old goal not found: $oldGoalId';
+          return result;
+        }
+
         if (newGoal == null) {
-          _logger.severe('New goal not found: $newGoalId');
-          return {'success': false, 'error': 'New goal not found: $newGoalId'};
+          _logger.warning('New goal not found: $newGoalId');
+          result['success'] = false;
+          result['error'] = 'New goal not found: $newGoalId';
+          return result;
         }
 
-        _logger.severe(
-            'Found new goal: ${newGoal.title} (${newGoal.id}) with amount ${newGoal.currentAmount}');
+        result['oldGoalName'] = oldGoal.title;
+        result['newGoalName'] = newGoal.title;
 
-        // Check if this will exceed the target amount (completing the goal)
-        bool willExceedTarget =
-            (newGoal.currentAmount + newTransaction.amount) >
-                newGoal.targetAmount;
-        if (willExceedTarget) {
-          result['willExceedTarget'] = true;
-          result['newGoalName'] = newGoal.title;
-          result['newGoalTarget'] = newGoal.targetAmount;
-          result['newGoalCurrent'] = newGoal.currentAmount;
-          result['transactionAmount'] = newTransaction.amount;
+        // Check if the new goal is already completed
+        if (newGoal.isCompleted) {
+          _logger.warning('Changing to a completed goal: ${newGoal.title}');
+          result['isCompleted'] = true;
         }
 
-        double newUpdatedAmount = newGoal.currentAmount + newTransaction.amount;
+        // Check if adding this transaction would cause the goal to be completed
+        final willExceedTarget = (newGoal.currentAmount + newEffectiveAmount) >=
+            newGoal.targetAmount;
+        result['willExceedTarget'] = willExceedTarget;
 
-        _logger.severe(
-            'Adding ${newTransaction.amount} to ${newGoal.title}: ${newGoal.currentAmount} → $newUpdatedAmount');
+        // Remove contribution from old goal
+        // Subtract the old effective amount
+        final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
+        final double oldGoalNewAmount =
+            calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
+        await _databaseService.updateSavingGoal(
+            oldGoal.copyWith(currentAmount: oldGoalNewAmount));
 
-        final updatedNewGoal =
-            newGoal.copyWith(currentAmount: newUpdatedAmount);
-        final newSuccess =
-            await _databaseService.updateSavingGoal(updatedNewGoal);
-
-        if (newSuccess) {
-          // Update local state
-          final newIndex = _savingGoals.indexWhere((g) => g.id == newGoalId);
-          if (newIndex >= 0) {
-            _savingGoals[newIndex] = updatedNewGoal;
-            _logger.severe('Updated new goal in memory');
-          } else {
-            _logger.severe('New goal not found in memory, adding it');
-            _savingGoals.add(updatedNewGoal);
-          }
-
-          // Store info for UI feedback
-          result['goalChanged'] = true;
-          result['newGoalName'] = newGoal.title;
-        } else {
-          _logger.severe('Failed to update new goal');
-          return {'success': false, 'error': 'Failed to update new goal'};
-        }
-
-        return result;
+        // Then add to new goal
+        await addContributionToSavingGoal(newGoal, newTransaction.amount,
+            contributionPercentage: newTransaction.contributionPercentage);
+        result['goalChanged'] = true;
       }
 
-      // CASE 3: Goal removed (transaction had goal before, now it doesn't)
+      // CASE 3: Had a goal before, but now removed
       else if (oldGoalId != null &&
           oldGoalId.isNotEmpty &&
           (newGoalId == null || newGoalId.isEmpty)) {
-        _logger.severe(
-            'CASE 3: Goal removed - removing amount from old goal $oldGoalId');
+        _logger.info('CASE 3: Removing goal from transaction');
 
-        // Remove from old goal
+        // Get the old goal
         final oldGoal = await getSavingGoalById(oldGoalId);
         if (oldGoal == null) {
-          _logger.severe('Goal not found: $oldGoalId');
-          return {'success': false, 'error': 'Goal not found: $oldGoalId'};
+          _logger.warning('Old goal not found: $oldGoalId');
+          result['success'] = false;
+          result['error'] = 'Old goal not found: $oldGoalId';
+          return result;
         }
 
-        _logger.severe(
-            'Found goal to remove amount from: ${oldGoal.title} (${oldGoal.id}) with amount ${oldGoal.currentAmount}');
+        result['oldGoalName'] = oldGoal.title;
 
-        double newAmount = oldGoal.currentAmount - oldTransaction.amount;
-        if (newAmount < 0) newAmount = 0;
-
-        _logger.severe(
-            'Removing ${oldTransaction.amount} from ${oldGoal.title}: ${oldGoal.currentAmount} → $newAmount');
-
-        final updatedGoal = oldGoal.copyWith(currentAmount: newAmount);
-        final success = await _databaseService.updateSavingGoal(updatedGoal);
-
-        // Update local state
-        if (success) {
-          final index = _savingGoals.indexWhere((g) => g.id == oldGoalId);
-          if (index >= 0) {
-            _savingGoals[index] = updatedGoal;
-            _logger.severe('Updated goal in memory');
-          } else {
-            _logger.severe('Goal not found in memory, adding it');
-            _savingGoals.add(updatedGoal);
-          }
-
-          // Store info for UI feedback
-          result['goalRemoved'] = true;
-          result['oldGoalName'] = oldGoal.title;
-        } else {
-          _logger.severe('Failed to update goal in database');
-          return {
-            'success': false,
-            'error': 'Failed to update goal in database'
-          };
-        }
-
-        return result;
+        // Remove contribution from the old goal
+        // Subtract the old effective amount, not just the old amount
+        final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
+        final double oldGoalNewAmount =
+            calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
+        await _databaseService.updateSavingGoal(
+            oldGoal.copyWith(currentAmount: oldGoalNewAmount));
+        result['goalRemoved'] = true;
       }
 
-      // CASE 4: Goal added (transaction didn't have goal before, now it does)
-      else if ((oldGoalId == null || oldGoalId.isEmpty) &&
+      // CASE 4: Same goal, but amount might have changed
+      else if (oldGoalId != null &&
+          oldGoalId.isNotEmpty &&
           newGoalId != null &&
-          newGoalId.isNotEmpty) {
-        _logger.severe(
-            'CASE 4: Goal added - adding amount to new goal $newGoalId');
+          newGoalId.isNotEmpty &&
+          oldGoalId == newGoalId) {
+        _logger.info('CASE 4: Updating same goal with new amount');
 
-        // Add to new goal
-        final newGoal = await getSavingGoalById(newGoalId);
-        if (newGoal == null) {
-          _logger.severe('Goal not found: $newGoalId');
-          return {'success': false, 'error': 'Goal not found: $newGoalId'};
+        // Get the goal
+        final goal = await getSavingGoalById(newGoalId);
+        if (goal == null) {
+          _logger.warning('Goal not found: $newGoalId');
+          result['success'] = false;
+          result['error'] = 'Goal not found: $newGoalId';
+          return result;
         }
 
-        _logger.severe(
-            'Found goal to add amount to: ${newGoal.title} (${newGoal.id}) with amount ${newGoal.currentAmount}');
+        result['oldGoalName'] = goal.title;
+        result['newGoalName'] = goal.title;
 
-        // Check if this will exceed the target amount (completing the goal)
-        bool willExceedTarget =
-            (newGoal.currentAmount + newTransaction.amount) >
-                newGoal.targetAmount;
-        if (willExceedTarget) {
-          result['willExceedTarget'] = true;
-          result['newGoalName'] = newGoal.title;
-          result['newGoalTarget'] = newGoal.targetAmount;
-          result['newGoalCurrent'] = newGoal.currentAmount;
-          result['transactionAmount'] = newTransaction.amount;
+        // Check if the goal is already completed
+        if (goal.isCompleted) {
+          _logger.warning('Updating a completed goal: ${goal.title}');
+          result['isCompleted'] = true;
         }
 
-        double newAmount = newGoal.currentAmount + newTransaction.amount;
+        // Calculate the new goal amount by removing the old contribution and adding the new one
+        final double differenceAmount = newEffectiveAmount - oldEffectiveAmount;
+        final calculatedNewAmount = goal.currentAmount + differenceAmount;
+        final double updatedAmount =
+            calculatedNewAmount < 0.0 ? 0.0 : calculatedNewAmount;
 
-        _logger.severe(
-            'Adding ${newTransaction.amount} to ${newGoal.title}: ${newGoal.currentAmount} → $newAmount');
+        _logger.info('Difference amount: $differenceAmount');
+        _logger.info('New goal amount: $updatedAmount');
 
-        final updatedGoal = newGoal.copyWith(currentAmount: newAmount);
-        final success = await _databaseService.updateSavingGoal(updatedGoal);
+        // Check if updating this transaction would cause the goal to be completed
+        final willExceedTarget = updatedAmount >= goal.targetAmount;
+        result['willExceedTarget'] = willExceedTarget;
 
-        // Update local state
-        if (success) {
-          final index = _savingGoals.indexWhere((g) => g.id == newGoalId);
-          if (index >= 0) {
-            _savingGoals[index] = updatedGoal;
-            _logger.severe('Updated goal in memory');
-          } else {
-            _logger.severe('Goal not found in memory, adding it');
-            _savingGoals.add(updatedGoal);
-          }
-
-          // Store info for UI feedback
-          result['goalAdded'] = true;
-          result['newGoalName'] = newGoal.title;
-        } else {
-          _logger.severe('Failed to update goal in database');
-          return {
-            'success': false,
-            'error': 'Failed to update goal in database'
-          };
-        }
-
-        return result;
+        // Update the goal with the new amount
+        await _databaseService
+            .updateSavingGoal(goal.copyWith(currentAmount: updatedAmount));
+        result['goalUpdated'] = true;
       }
 
       // CASE 5: No relevant goal changes
@@ -635,6 +540,8 @@ class FinanceProvider with ChangeNotifier {
         _logger.severe('New amount: ${newTransaction.amount}');
         return result;
       }
+
+      return result;
     } catch (e) {
       _logger.severe('Error handling saving goal transaction: $e');
       return {
@@ -645,10 +552,16 @@ class FinanceProvider with ChangeNotifier {
   }
 
   // Handle new transaction contribution to a saving goal
-  Future<bool> addContributionToSavingGoal(
-      SavingGoal goal, double amount) async {
+  Future<bool> addContributionToSavingGoal(SavingGoal goal, double amount,
+      {double? contributionPercentage}) async {
     try {
-      _logger.info('Adding contribution to goal: ${goal.id}, amount: $amount');
+      final double effectiveAmount =
+          contributionPercentage != null && contributionPercentage < 100
+              ? amount * contributionPercentage / 100
+              : amount;
+
+      _logger.info(
+          'Adding contribution to goal: ${goal.id}, amount: $effectiveAmount (${contributionPercentage ?? 100}% of $amount)');
 
       // Verify goal exists and get latest data
       final existingGoal = await getSavingGoalById(goal.id!);
@@ -659,9 +572,9 @@ class FinanceProvider with ChangeNotifier {
       }
 
       // Update the goal amount
-      final newAmount = existingGoal.currentAmount + amount;
+      final newAmount = existingGoal.currentAmount + effectiveAmount;
       _logger.info(
-          'Updating goal amount: ${existingGoal.currentAmount} + $amount = $newAmount');
+          'Updating goal amount: ${existingGoal.currentAmount} + $effectiveAmount = $newAmount');
 
       final updatedGoal = existingGoal.copyWith(currentAmount: newAmount);
       final success = await _databaseService.updateSavingGoal(updatedGoal);
@@ -699,6 +612,8 @@ class FinanceProvider with ChangeNotifier {
       _logger.severe('Adding transaction with goal handling');
       _logger.severe('Transaction goal ID: ${transaction.goalId}');
       _logger.severe('Provided goal ID: ${savingGoal?.id}');
+      _logger.severe(
+          'Contribution percentage: ${transaction.contributionPercentage}%');
 
       // Verify the goal IDs match
       if (savingGoal != null &&
@@ -724,8 +639,9 @@ class FinanceProvider with ChangeNotifier {
             'Transaction added, now updating goal: ${savingGoal.id} (${savingGoal.title})');
 
         // Add contribution to goal - use the actual goal object to ensure we're updating the right one
-        final goalSuccess =
-            await addContributionToSavingGoal(savingGoal, transaction.amount);
+        final goalSuccess = await addContributionToSavingGoal(
+            savingGoal, transaction.amount,
+            contributionPercentage: transaction.contributionPercentage);
         if (!goalSuccess) {
           _error = 'Transaction added but failed to update saving goal';
           _logger.warning(_error!);
@@ -831,8 +747,18 @@ class FinanceProvider with ChangeNotifier {
         orElse: () => transaction,
       );
 
-      // STEP 1: Handle saving goal changes if any
-      if (oldTransaction.id != null) {
+      final String? oldGoalId = oldTransaction.goalId;
+      final String? newGoalId = transaction.goalId;
+
+      // Log transaction details
+      _logger.info('oldGoalId: $oldGoalId');
+      _logger.info('newGoalId: $newGoalId');
+
+      // Process goals and update the transaction
+      // This covers adding goals, changing goals, and removing goals
+      if ((oldGoalId != null && oldGoalId.isNotEmpty) ||
+          (newGoalId != null && newGoalId.isNotEmpty)) {
+        _logger.info('Transaction has goal ID - handling saving goal updates');
         final goalResult =
             await _handleSavingGoalTransaction(oldTransaction, transaction);
 
@@ -842,35 +768,78 @@ class FinanceProvider with ChangeNotifier {
           _isLoading = false;
           _isInTransactionUpdate = false;
           notifyListeners();
+          result['success'] = false;
           result['message'] = _error!;
           return result;
         }
 
-        // Pass along goal change information for UI feedback
-        if (goalResult['goalChanged']) {
+        // Copy goal-related results to our result object
+        if (goalResult.containsKey('goalChanged') &&
+            goalResult['goalChanged']) {
           result['goalChanged'] = true;
           result['oldGoalName'] = goalResult['oldGoalName'];
           result['newGoalName'] = goalResult['newGoalName'];
-          result['message'] =
-              'Transaction moved from ${goalResult['oldGoalName']} to ${goalResult['newGoalName']}. Goal progress updated accordingly.';
-        } else if (goalResult['goalAdded']) {
+
+          final percentInfo = transaction.contributionPercentage != null &&
+                  transaction.contributionPercentage! < 100
+              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
+              : "";
+
+          if (goalResult.containsKey('isCompleted') &&
+              goalResult['isCompleted']) {
+            result['isCompleted'] = true;
+            result['message'] =
+                'Transaction moved to already completed goal "${goalResult['newGoalName']}". '
+                'Goal progress updated accordingly.$percentInfo';
+          } else {
+            result['message'] =
+                'Transaction moved from "${goalResult['oldGoalName']}" to "${goalResult['newGoalName']}".$percentInfo';
+          }
+        } else if (goalResult.containsKey('goalAdded') &&
+            goalResult['goalAdded']) {
           result['goalAdded'] = true;
           result['newGoalName'] = goalResult['newGoalName'];
-          result['message'] =
-              'Transaction added to ${goalResult['newGoalName']}. Goal progress updated.';
-        } else if (goalResult['goalRemoved']) {
+
+          final percentInfo = transaction.contributionPercentage != null &&
+                  transaction.contributionPercentage! < 100
+              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
+              : "";
+
+          if (goalResult.containsKey('isCompleted') &&
+              goalResult['isCompleted']) {
+            result['isCompleted'] = true;
+            result['message'] =
+                'Transaction added to already completed goal "${goalResult['newGoalName']}". '
+                'Goal progress updated.$percentInfo';
+          } else {
+            result['message'] =
+                'Transaction now contributes to "${goalResult['newGoalName']}".$percentInfo';
+          }
+        } else if (goalResult.containsKey('goalRemoved') &&
+            goalResult['goalRemoved']) {
           result['goalRemoved'] = true;
           result['oldGoalName'] = goalResult['oldGoalName'];
           result['message'] =
-              'Transaction removed from ${goalResult['oldGoalName']}. Goal progress updated.';
-        } else if (goalResult['amountChanged']) {
-          result['amountChanged'] = true;
-          result['goalName'] = goalResult['goalName'];
-          result['amountDifference'] = goalResult['amountDifference'];
-          String changeDirection =
-              goalResult['amountDifference'] > 0 ? 'increased' : 'decreased';
-          result['message'] =
-              '${goalResult["goalName"]} progress $changeDirection by ${goalResult["amountDifference"].abs().toStringAsFixed(2)}.';
+              'Transaction no longer contributes to "${goalResult['oldGoalName']}"';
+        } else if (goalResult.containsKey('goalUpdated') &&
+            goalResult['goalUpdated']) {
+          result['goalUpdated'] = true;
+          result['newGoalName'] = goalResult['newGoalName'];
+
+          final percentInfo = transaction.contributionPercentage != null &&
+                  transaction.contributionPercentage! < 100
+              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
+              : "";
+
+          if (goalResult.containsKey('isCompleted') &&
+              goalResult['isCompleted']) {
+            result['isCompleted'] = true;
+            result['message'] =
+                'Updated contribution to completed goal "${goalResult['newGoalName']}".$percentInfo';
+          } else {
+            result['message'] =
+                'Updated contribution to "${goalResult['newGoalName']}".$percentInfo';
+          }
         }
 
         // Check if the transaction will exceed the goal target
@@ -945,6 +914,49 @@ class FinanceProvider with ChangeNotifier {
         return false;
       }
 
+      // Check if this is an income transaction with a goal
+      if (transaction.type == app_model.TransactionType.income &&
+          transaction.goalId != null &&
+          transaction.goalId!.isNotEmpty) {
+        _logger.info(
+            'Income transaction with goal ID: ${transaction.goalId} being deleted');
+
+        // Get the associated saving goal
+        final goal = await getSavingGoalById(transaction.goalId!);
+
+        if (goal != null) {
+          _logger.info(
+              'Found goal: ${goal.title} with current amount ${goal.currentAmount}');
+
+          // Calculate new amount by removing the transaction amount
+          double newAmount = goal.currentAmount - transaction.amount;
+          if (newAmount < 0) newAmount = 0;
+
+          _logger
+              .info('Updating goal amount: ${goal.currentAmount} → $newAmount');
+
+          // Update the goal with the new amount
+          final updatedGoal = goal.copyWith(currentAmount: newAmount);
+          final updateSuccess =
+              await _databaseService.updateSavingGoal(updatedGoal);
+
+          if (updateSuccess) {
+            // Update local state if successful
+            final index = _savingGoals.indexWhere((g) => g.id == goal.id);
+            if (index >= 0) {
+              _savingGoals[index] = updatedGoal;
+              _logger.info('Updated goal in memory');
+            }
+          } else {
+            _logger.warning(
+                'Failed to update goal balance when deleting transaction');
+          }
+        } else {
+          _logger.warning(
+              'Goal not found for transaction being deleted: ${transaction.goalId}');
+        }
+      }
+
       // First remove the transaction from the local list to update UI immediately
       _transactions.removeWhere((t) => t.id == transaction.id);
       notifyListeners();
@@ -963,8 +975,9 @@ class FinanceProvider with ChangeNotifier {
 
       _logger.info('Successfully deleted transaction: ${transaction.id}');
 
-      // Re-fetch the transactions to ensure everything is in sync
+      // Re-fetch the transactions and saving goals to ensure everything is in sync
       await fetchTransactions();
+      await fetchSavingGoals();
 
       _isLoading = false;
       notifyListeners();
@@ -974,6 +987,7 @@ class FinanceProvider with ChangeNotifier {
       _logger.severe(_error);
       // Re-fetch to ensure UI is in sync
       await fetchTransactions();
+      await fetchSavingGoals();
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1286,34 +1300,34 @@ class FinanceProvider with ChangeNotifier {
     }
   }
 
-  // Get a saving goal by ID
+  // Get a saving goal by ID from cache or database
   Future<SavingGoal?> getSavingGoalById(String goalId) async {
+    _logger.info('Getting saving goal by ID: $goalId');
+
+    // First check in memory/cache
+    final matchingGoals = _savingGoals.where((g) => g.id == goalId).toList();
+    if (matchingGoals.isNotEmpty) {
+      final goal = matchingGoals.first;
+      _logger.info('Found goal in cache: ${goal.title}');
+      _logger.info(
+          'Goal amount: ${goal.currentAmount}/${goal.targetAmount}, completed: ${goal.isCompleted}');
+      return goal;
+    }
+
+    // If not found in cache, try to fetch from database
     try {
-      _logger.info('Getting saving goal by ID: $goalId');
-
-      // First, try to find the goal in the local cache
-      final matchingGoals =
-          _savingGoals.where((goal) => goal.id == goalId).toList();
-
-      if (matchingGoals.isNotEmpty) {
-        _logger.info('Found goal in cache: ${matchingGoals.first.title}');
-        return matchingGoals.first;
-      } else {
-        _logger.info('Goal not found in cache, fetching from database');
-        // Goal not found in cache, fetch from database
-        final goal = await _databaseService.getSavingGoal(goalId);
-
-        if (goal != null) {
-          _logger.info('Found goal in database: ${goal.title}');
-        } else {
-          _logger.warning('Goal not found in database either: $goalId');
-        }
-
+      final goal = await _databaseService.getSavingGoal(goalId);
+      if (goal != null) {
+        _logger.info('Found goal in database: ${goal.title}');
+        _logger.info(
+            'Goal amount: ${goal.currentAmount}/${goal.targetAmount}, completed: ${goal.isCompleted}');
         return goal;
+      } else {
+        _logger.warning('Goal not found in database: $goalId');
+        return null;
       }
     } catch (e) {
-      _error = 'Failed to fetch saving goal: $e';
-      _logger.warning(_error);
+      _logger.severe('Failed to fetch saving goal: $e');
       return null;
     }
   }

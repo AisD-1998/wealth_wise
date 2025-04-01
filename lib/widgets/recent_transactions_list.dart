@@ -150,6 +150,15 @@ class RecentTransactionsList extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          // Show goal indicator for income transactions with goals
+          if (transaction.contributesToGoal) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.savings_outlined,
+              size: 14,
+              color: colorScheme.primary,
+            ),
+          ]
         ],
       ),
       trailing: Text(

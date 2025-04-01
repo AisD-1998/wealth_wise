@@ -1,6 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Enum to represent the category type
+enum CategoryType { income, expense }
+
+/// Extension to convert CategoryType to/from String
+extension CategoryTypeExtension on CategoryType {
+  String toShortString() {
+    return toString().split('.').last;
+  }
+
+  static CategoryType fromString(String typeString) {
+    return CategoryType.values.firstWhere(
+      (e) => e.toShortString() == typeString,
+      orElse: () => CategoryType.expense,
+    );
+  }
+}
+
 class Category {
   final String id;
   final String name;
@@ -9,6 +26,7 @@ class Category {
   final String userId;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final CategoryType type;
 
   const Category({
     required this.id,
@@ -18,6 +36,7 @@ class Category {
     required this.userId,
     required this.createdAt,
     required this.updatedAt,
+    required this.type,
   });
 
   factory Category.fromMap(Map<String, dynamic> map) {
@@ -30,6 +49,12 @@ class Category {
       colorValue = map['color'] as int;
     }
 
+    // Parse the category type, defaulting to expense if not present
+    CategoryType categoryType = CategoryType.expense;
+    if (map.containsKey('type') && map['type'] is String) {
+      categoryType = CategoryTypeExtension.fromString(map['type'] as String);
+    }
+
     return Category(
       id: map['id'] as String,
       name: map['name'] as String,
@@ -38,6 +63,7 @@ class Category {
       userId: map['userId'] as String,
       createdAt: createdAtTimestamp.toDate(),
       updatedAt: updatedAtTimestamp.toDate(),
+      type: categoryType,
     );
   }
 
@@ -50,6 +76,7 @@ class Category {
       'userId': userId,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'type': type.toShortString(),
     };
   }
 
@@ -61,6 +88,7 @@ class Category {
     String? userId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    CategoryType? type,
   }) {
     return Category(
       id: id ?? this.id,
@@ -70,6 +98,7 @@ class Category {
       userId: userId ?? this.userId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      type: type ?? this.type,
     );
   }
 }

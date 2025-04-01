@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/models/transaction.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
+import 'package:wealth_wise/models/category.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
@@ -30,6 +31,7 @@ class _TransactionFormState extends State<TransactionForm> {
   late TextEditingController _titleController;
   late TextEditingController _amountController;
   late TextEditingController _noteController;
+  late TextEditingController _percentageController;
 
   TransactionType _selectedType = TransactionType.expense;
   String? _selectedCategory;
@@ -37,6 +39,7 @@ class _TransactionFormState extends State<TransactionForm> {
   bool _isLoading = false;
   bool _saveToSavingsGoal = false;
   SavingGoal? _selectedSavingGoal;
+  double _contributionPercentage = 100.0;
 
   @override
   void initState() {
@@ -56,16 +59,21 @@ class _TransactionFormState extends State<TransactionForm> {
     );
     _noteController =
         TextEditingController(text: widget.transaction?.note ?? '');
+    _percentageController = TextEditingController(text: '100');
 
     // Set initial values if editing
     if (widget.transaction != null) {
       _selectedType = widget.transaction!.type;
       _selectedCategory = widget.transaction!.category;
       _selectedDate = widget.transaction!.date;
+      _contributionPercentage =
+          widget.transaction!.contributionPercentage ?? 100.0;
+      _percentageController.text = _contributionPercentage.toStringAsFixed(0);
 
       debugPrint('Init form for editing transaction ${widget.transaction!.id}');
       debugPrint('Transaction type: ${widget.transaction!.type}');
       debugPrint('Transaction goal ID: ${widget.transaction!.goalId}');
+      debugPrint('Contribution percentage: $_contributionPercentage');
 
       // Initialize saving goal fields if this is an income transaction with a goalId
       if (widget.transaction!.type == TransactionType.income) {
@@ -124,6 +132,7 @@ class _TransactionFormState extends State<TransactionForm> {
     _titleController.dispose();
     _amountController.dispose();
     _noteController.dispose();
+    _percentageController.dispose();
     super.dispose();
   }
 
@@ -202,6 +211,8 @@ class _TransactionFormState extends State<TransactionForm> {
           // Only set goalId for income transactions with selected goal
           goalId: goalIdToUse,
           note: _noteController.text.trim(),
+          contributionPercentage:
+              _saveToSavingsGoal ? _contributionPercentage : null,
         );
 
         debugPrint('Transaction object goal ID: ${transaction.goalId}');
@@ -286,8 +297,14 @@ class _TransactionFormState extends State<TransactionForm> {
     final financeProvider = Provider.of<FinanceProvider>(context);
     final savingGoals = financeProvider.savingGoals;
 
-    // Get valid categories
-    final availableCategories = financeProvider.categories
+    // Get valid categories - filter by transaction type
+    final allCategories = financeProvider.categories;
+    final categoryType = _selectedType == TransactionType.income
+        ? CategoryType.income
+        : CategoryType.expense;
+
+    final availableCategories = allCategories
+        .where((category) => category.type == categoryType)
         .map((category) => category.name)
         .toSet()
         .toList();
@@ -321,7 +338,24 @@ class _TransactionFormState extends State<TransactionForm> {
                   setState(() {
                     _titleController.text =
                         'Contribution to ${selectedGoal.title}';
-                    _selectedCategory = 'Investments';
+                    // Find a suitable income category
+                    final incomeCategories = financeProvider.categories
+                        .where((c) => c.type == CategoryType.income)
+                        .toList();
+
+                    if (incomeCategories.isNotEmpty) {
+                      // Try to find an 'Investments' or similar category
+                      final investmentCategory = incomeCategories.firstWhere(
+                        (c) =>
+                            c.name.toLowerCase().contains('invest') ||
+                            c.name.toLowerCase().contains('saving'),
+                        orElse: () => incomeCategories.first,
+                      );
+                      _selectedCategory = investmentCategory.name;
+                    } else {
+                      _selectedCategory = 'Investments';
+                    }
+
                     _saveToSavingsGoal = true;
                     _selectedSavingGoal = selectedGoal;
                   });
@@ -501,28 +535,33 @@ class _TransactionFormState extends State<TransactionForm> {
                   CheckboxListTile(
                     title: const Text('Save to Saving Goal'),
                     value: _saveToSavingsGoal,
-                    onChanged: (value) {
-                      setState(() {
-                        _saveToSavingsGoal = value ?? false;
+                    onChanged: savingGoals.isEmpty
+                        ? null // Disable if no goals available
+                        : (value) {
+                            setState(() {
+                              _saveToSavingsGoal = value ?? false;
 
-                        // If turning off, clear selected goal
-                        if (!_saveToSavingsGoal) {
-                          _selectedSavingGoal = null;
-                        }
-                      });
-                    },
+                              // If turning off, clear selected goal
+                              if (!_saveToSavingsGoal) {
+                                _selectedSavingGoal = null;
+                              }
+                            });
+                          },
                     controlAffinity: ListTileControlAffinity.leading,
+                    subtitle: savingGoals.isEmpty
+                        ? const Text(
+                            'Create a saving goal first to enable this option',
+                            style: TextStyle(color: Colors.grey, fontSize: 12))
+                        : null,
                   ),
                   if (_saveToSavingsGoal && savingGoals.isNotEmpty) ...[
+                    const SizedBox(height: 8),
                     DropdownButtonFormField<SavingGoal?>(
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Saving Goal',
                         border: OutlineInputBorder(),
                         filled: true,
                         prefixIcon: Icon(Icons.savings),
-                        helperText: _selectedSavingGoal != null
-                            ? 'Current balance: \$${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}'
-                            : 'Select a goal to contribute to',
                       ),
                       value: _selectedSavingGoal,
                       items: [
@@ -531,9 +570,8 @@ class _TransactionFormState extends State<TransactionForm> {
                           child: Text('None'),
                         ),
                         ...savingGoals.map((goal) {
-                          // Add detailed logging for each goal in the dropdown
-                          debugPrint(
-                              'DROPDOWN GOAL: ${goal.title} (ID: ${goal.id})');
+                          // Show if goal is completed
+                          final isCompleted = goal.isCompleted;
                           return DropdownMenuItem<SavingGoal?>(
                             value: goal,
                             child: Row(
@@ -543,10 +581,20 @@ class _TransactionFormState extends State<TransactionForm> {
                                 Text(
                                   '(${(goal.currentAmount / goal.targetAmount * 100).toStringAsFixed(0)}%)',
                                   style: TextStyle(
-                                    color: Colors.grey,
+                                    color: isCompleted
+                                        ? Colors.green
+                                        : Colors.grey,
+                                    fontWeight: isCompleted
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                     fontSize: 12,
                                   ),
                                 ),
+                                if (isCompleted) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.check_circle,
+                                      color: Colors.green, size: 14)
+                                ]
                               ],
                             ),
                           );
@@ -566,34 +614,143 @@ class _TransactionFormState extends State<TransactionForm> {
                                 '- Current Amount: ${value.currentAmount}');
                             debugPrint(
                                 '- Target Amount: ${value.targetAmount}');
+                            debugPrint('- Is Completed: ${value.isCompleted}');
                             _saveToSavingsGoal = true;
                           }
                         });
                       },
                     ),
-                    if (_selectedSavingGoal != null)
+                    if (_selectedSavingGoal != null) ...[
                       Padding(
-                        padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                        padding: const EdgeInsets.only(top: 8.0, left: 8.0),
                         child: Row(
                           children: [
                             Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
+                              Icons.info_outline,
+                              color: _selectedSavingGoal!.isCompleted
+                                  ? Colors.orange
+                                  : Colors.green,
                               size: 16,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Contributing \$${_amountController.text.isEmpty ? "0.00" : double.tryParse(_amountController.text)?.toStringAsFixed(2) ?? "0.00"} to "${_selectedSavingGoal!.title}"',
+                                _selectedSavingGoal!.isCompleted
+                                    ? 'Goal already completed (${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)})'
+                                    : 'Current progress: ${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)}',
                                 style: TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold,
+                                  color: _selectedSavingGoal!.isCompleted
+                                      ? Colors.orange
+                                      : Colors.green,
+                                  fontSize: 12,
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ),
+
+                      // Percentage slider for contribution
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 8.0, bottom: 4.0),
+                              child: Text(
+                                'Contribution Percentage: ${_contributionPercentage.toStringAsFixed(0)}%',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Slider(
+                                    value: _contributionPercentage,
+                                    min: 1,
+                                    max: 100,
+                                    divisions: 20,
+                                    label:
+                                        '${_contributionPercentage.toStringAsFixed(0)}%',
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _contributionPercentage = value;
+                                        _percentageController.text =
+                                            value.toStringAsFixed(0);
+                                      });
+                                    },
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 60,
+                                  child: TextFormField(
+                                    controller: _percentageController,
+                                    keyboardType: TextInputType.number,
+                                    textAlign: TextAlign.center,
+                                    decoration: const InputDecoration(
+                                      suffixText: '%',
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      isDense: true,
+                                    ),
+                                    onChanged: (value) {
+                                      final percentage = int.tryParse(value);
+                                      if (percentage != null &&
+                                          percentage > 0 &&
+                                          percentage <= 100) {
+                                        setState(() {
+                                          _contributionPercentage =
+                                              percentage.toDouble();
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _selectedSavingGoal!.isCompleted
+                                  ? Icons.warning
+                                  : Icons.check_circle,
+                              color: _selectedSavingGoal!.isCompleted
+                                  ? Colors.orange
+                                  : Colors.green,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _amountController.text.isEmpty
+                                    ? 'Enter an amount to contribute'
+                                    : _contributionPercentage < 100
+                                        ? 'Contributing ${_contributionPercentage.toStringAsFixed(0)}% (\$${(double.tryParse(_amountController.text) ?? 0 * _contributionPercentage / 100).toStringAsFixed(2)}) to "${_selectedSavingGoal!.title}"'
+                                        : 'Contributing \$${double.tryParse(_amountController.text)?.toStringAsFixed(2) ?? "0.00"} to "${_selectedSavingGoal!.title}"',
+                                style: TextStyle(
+                                  color: _selectedSavingGoal!.isCompleted
+                                      ? Colors.orange
+                                      : Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ],
 

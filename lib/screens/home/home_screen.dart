@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/models/transaction.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
@@ -11,7 +12,6 @@ import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
 import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
-import 'package:wealth_wise/services/database_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -654,6 +654,87 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                   value: transaction.note!,
                 ),
 
+              // Show saving goal info for income transactions with goals
+              if (transaction.contributesToGoal && transaction.goalId != null)
+                FutureBuilder<SavingGoal?>(
+                  future: Provider.of<FinanceProvider>(context, listen: false)
+                      .getSavingGoalById(transaction.goalId!),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                        child: Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      );
+                    }
+
+                    final goal = snapshot.data;
+                    if (goal == null) {
+                      return DetailItem(
+                        icon: Icons.savings,
+                        title: 'Saving Goal',
+                        value: 'Unknown or deleted goal',
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DetailItem(
+                          icon: Icons.savings,
+                          title: 'Saving Goal',
+                          value: goal.title,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 42.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Progress: \$${goal.currentAmount.toStringAsFixed(2)} / \$${goal.targetAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: goal.isCompleted
+                                      ? Colors.green
+                                      : Colors.grey[600],
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(
+                                value: (goal.currentAmount / goal.targetAmount)
+                                    .clamp(0.0, 1.0),
+                                backgroundColor: Colors.grey[200],
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  goal.isCompleted
+                                      ? Colors.green
+                                      : theme.colorScheme.primary,
+                                ),
+                                minHeight: 6,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                goal.isCompleted
+                                    ? 'Goal completed!'
+                                    : '${((goal.currentAmount / goal.targetAmount) * 100).toStringAsFixed(1)}% complete',
+                                style: TextStyle(
+                                  color: goal.isCompleted
+                                      ? Colors.green
+                                      : Colors.grey[600],
+                                  fontSize: 12,
+                                  fontWeight: goal.isCompleted
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+
               const SizedBox(height: 24),
 
               // Action buttons
@@ -761,7 +842,6 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     // Make sure we have the transaction provider
     final financeProvider =
         Provider.of<FinanceProvider>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Show a loading indicator
     scaffoldMessenger.showSnackBar(
@@ -783,42 +863,36 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
       debugPrint(
           'Deleting transaction: ${transaction.id} - ${transaction.title}');
 
-      // Directly call the database service for deletion
-      final DatabaseService databaseService = DatabaseService();
-      final success = await databaseService.deleteTransaction(transaction.id!);
+      // Use the finance provider to properly handle goal updates when deleting
+      final success = await financeProvider.deleteTransaction(transaction);
 
       // Check if state is still mounted before continuing
       if (!mounted) return;
 
+      scaffoldMessenger.clearSnackBars();
       if (success) {
-        // Clear previous snackbar
-        scaffoldMessenger.clearSnackBars();
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Transaction deleted successfully')),
+          SnackBar(
+            content: Text('${transaction.title} deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
         );
-
-        // Refresh the finance data
-        if (authProvider.user != null) {
-          await financeProvider.initializeFinanceData(authProvider.user!.uid);
-        }
-
-        // Rebuild the UI - only if still mounted
-        if (mounted) {
-          setState(() {});
-        }
       } else {
-        scaffoldMessenger.clearSnackBars();
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Failed to delete transaction')),
+          SnackBar(
+            content: Text('Failed to delete ${transaction.title}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } catch (e) {
-      // Check if still mounted before showing error
       if (!mounted) return;
-
       scaffoldMessenger.clearSnackBars();
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }

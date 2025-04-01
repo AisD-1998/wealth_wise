@@ -621,6 +621,7 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'income',
         },
         {
           'id': 'investments-${DateTime.now().millisecondsSinceEpoch}',
@@ -630,6 +631,27 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'income',
+        },
+        {
+          'id': 'business-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Business',
+          'icon': 'work',
+          'color': Colors.teal.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+          'type': 'income',
+        },
+        {
+          'id': 'gifts-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Gifts',
+          'icon': 'card_giftcard',
+          'color': Colors.purple.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+          'type': 'income',
         },
         // Expense categories
         {
@@ -640,6 +662,7 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'expense',
         },
         {
           'id': 'housing-${DateTime.now().millisecondsSinceEpoch}',
@@ -649,6 +672,7 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'expense',
         },
         {
           'id': 'transportation-${DateTime.now().millisecondsSinceEpoch}',
@@ -658,6 +682,7 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'expense',
         },
         {
           'id': 'entertainment-${DateTime.now().millisecondsSinceEpoch}',
@@ -667,6 +692,27 @@ class DatabaseService {
           'userId': userId,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),
+          'type': 'expense',
+        },
+        {
+          'id': 'utilities-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Utilities',
+          'icon': 'power',
+          'color': Colors.blue.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+          'type': 'expense',
+        },
+        {
+          'id': 'health-${DateTime.now().millisecondsSinceEpoch}',
+          'name': 'Health',
+          'icon': 'local_hospital',
+          'color': Colors.red.toARGB32(),
+          'userId': userId,
+          'createdAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+          'type': 'expense',
         },
       ];
 

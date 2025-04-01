@@ -12,12 +12,18 @@ class CategoriesScreen extends StatefulWidget {
 }
 
 class _CategoriesScreenState extends State<CategoriesScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   String _selectedIcon = '0xe1b1'; // Default to category icon
   Color _selectedColor = Colors.blue;
   bool _isLoading = true;
+
+  // Tab controller for Income/Expense tabs
+  late TabController _tabController;
+
+  // Track the currently selected category type
+  CategoryType _selectedCategoryType = CategoryType.expense;
 
   // Icon mapping for the dropdowns - using string values consistently
   final List<Map<String, dynamic>> _iconMap = [
@@ -41,11 +47,27 @@ class _CategoriesScreenState extends State<CategoriesScreen>
     {'name': 'phone_android', 'code': '0xe324'},
     {'name': 'build', 'code': '0xe869'},
     {'name': 'cleaning_services', 'code': '0xf0ff'},
+    {'name': 'attach_money', 'code': '0xe227'},
+    {'name': 'card_giftcard', 'code': '0xe8f6'},
+    {'name': 'insert_chart', 'code': '0xe24b'},
+    {'name': 'account_balance', 'code': '0xe84f'},
+    {'name': 'savings', 'code': '0xe2eb'},
   ];
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+
+    // Listen to tab changes to update the selected category type
+    _tabController.addListener(() {
+      setState(() {
+        _selectedCategoryType = _tabController.index == 0
+            ? CategoryType.expense
+            : CategoryType.income;
+      });
+    });
+
     WidgetsBinding.instance.addObserver(this);
     _loadCategories();
   }
@@ -92,6 +114,7 @@ class _CategoriesScreenState extends State<CategoriesScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _nameController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -107,7 +130,8 @@ class _CategoriesScreenState extends State<CategoriesScreen>
         // Use StatefulBuilder to update dialog UI when color is selected
         return StatefulBuilder(builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('Add New Category'),
+            title: Text(
+                'Add New ${_selectedCategoryType == CategoryType.income ? 'Income' : 'Expense'} Category'),
             content: SingleChildScrollView(
               child: Form(
                 key: _formKey,
@@ -240,6 +264,7 @@ class _CategoriesScreenState extends State<CategoriesScreen>
                       userId: userId,
                       createdAt: DateTime.now(),
                       updatedAt: DateTime.now(),
+                      type: _selectedCategoryType,
                     );
 
                     // Close dialog first, then do async operation
@@ -281,7 +306,8 @@ class _CategoriesScreenState extends State<CategoriesScreen>
         // Use StatefulBuilder to update dialog UI when color is selected
         return StatefulBuilder(builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('Edit Category'),
+            title: Text(
+                'Edit ${category.type == CategoryType.income ? 'Income' : 'Expense'} Category'),
             content: SingleChildScrollView(
               child: Form(
                 key: _formKey,
@@ -435,64 +461,109 @@ class _CategoriesScreenState extends State<CategoriesScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final userId = context.watch<AuthProvider>().user?.uid;
-    final categories = context.watch<CategoryProvider>().categories;
+    final categoryProvider = context.watch<CategoryProvider>();
+    final categories = categoryProvider.categories;
 
     if (userId == null) {
       return const Center(child: Text('Please sign in to manage categories'));
     }
 
+    // Separate categories into income and expense lists
+    final incomeCategories =
+        categories.where((c) => c.type == CategoryType.income).toList();
+    final expenseCategories =
+        categories.where((c) => c.type == CategoryType.expense).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Categories'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _showAddCategoryDialog,
-          ),
-        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(
+              text: 'EXPENSES',
+              icon: Icon(Icons.arrow_downward),
+            ),
+            Tab(
+              text: 'INCOME',
+              icon: Icon(Icons.arrow_upward),
+            ),
+          ],
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : categories.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.category_outlined,
-                        size: 64,
-                        color: theme.colorScheme.outline,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No categories found',
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Add a category to get started',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: _showAddCategoryDialog,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add Category'),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadCategories,
-                  child: ListView.builder(
-                    itemCount: categories.length,
-                    padding: const EdgeInsets.all(16),
-                    itemBuilder: (context, index) {
-                      final category = categories[index];
-                      return _buildCategoryCard(context, category);
-                    },
-                  ),
-                ),
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                // Expense categories tab
+                _buildCategoryList(
+                    context, expenseCategories, CategoryType.expense, theme),
+
+                // Income categories tab
+                _buildCategoryList(
+                    context, incomeCategories, CategoryType.income, theme),
+              ],
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddCategoryDialog,
+        tooltip: 'Add Category',
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _buildCategoryList(BuildContext context, List<Category> categories,
+      CategoryType type, ThemeData theme) {
+    if (categories.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              type == CategoryType.income
+                  ? Icons.arrow_upward
+                  : Icons.arrow_downward,
+              size: 64,
+              color: theme.colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No ${type == CategoryType.income ? 'income' : 'expense'} categories found',
+              style: theme.textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add a category to get started',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () {
+                setState(() {
+                  _selectedCategoryType = type;
+                });
+                _showAddCategoryDialog();
+              },
+              icon: const Icon(Icons.add),
+              label: Text(
+                  'Add ${type == CategoryType.income ? 'Income' : 'Expense'} Category'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadCategories,
+      child: ListView.builder(
+        itemCount: categories.length,
+        padding: const EdgeInsets.all(16),
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          return _buildCategoryCard(context, category);
+        },
+      ),
     );
   }
 
@@ -517,9 +588,22 @@ class _CategoriesScreenState extends State<CategoriesScreen>
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: Text(
-                category.name,
-                style: theme.textTheme.titleMedium,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    category.name,
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  Text(
+                    category.type == CategoryType.income ? 'Income' : 'Expense',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: category.type == CategoryType.income
+                          ? Colors.green
+                          : Colors.red,
+                    ),
+                  ),
+                ],
               ),
             ),
             IconButton(

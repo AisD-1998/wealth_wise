@@ -8,6 +8,7 @@ import '../providers/finance_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/category_provider.dart';
 import 'package:logging/logging.dart';
+import '../models/category.dart';
 
 /// Utility class for common UI helper methods
 class UIHelpers {
@@ -30,11 +31,14 @@ class UIHelpers {
     final amountController = TextEditingController();
     final noteController = TextEditingController();
     final dateController = TextEditingController();
+    final percentageController = TextEditingController(text: '100');
+
     DateTime selectedDate = DateTime.now();
     TimeOfDay selectedTime = TimeOfDay.now();
     String? selectedCategory;
     bool contributesToGoal = false; // Add for goal contributions
     String? selectedGoalId; // Track the selected goal ID
+    double contributionPercentage = 100.0; // Default to 100%
 
     // If editing an existing transaction, pre-fill the form
     if (existingTransaction != null) {
@@ -47,6 +51,9 @@ class UIHelpers {
       selectedCategory = existingTransaction.category;
       contributesToGoal = existingTransaction.contributesToGoal;
       selectedGoalId = existingTransaction.goalId; // Set the initial goal ID
+      contributionPercentage =
+          existingTransaction.contributionPercentage ?? 100.0;
+      percentageController.text = contributionPercentage.toStringAsFixed(0);
     } else {
       dateController.text = DateFormat('MMMM d, yyyy').format(selectedDate);
     }
@@ -89,6 +96,10 @@ class UIHelpers {
         goalId: type == app_model.TransactionType.income && contributesToGoal
             ? selectedGoalId
             : null,
+        contributionPercentage:
+            type == app_model.TransactionType.income && contributesToGoal
+                ? contributionPercentage
+                : null,
       );
 
       // Flag to remember whether we're updating or creating a new transaction
@@ -104,12 +115,23 @@ class UIHelpers {
 
         if (matchingGoals.isNotEmpty) {
           final selectedGoal = matchingGoals.first;
-          final willExceedTarget =
-              (selectedGoal.currentAmount + amount) > selectedGoal.targetAmount;
 
-          if (willExceedTarget) {
-            final overAmount = (selectedGoal.currentAmount + amount) -
-                selectedGoal.targetAmount;
+          // Check if the goal is already completed
+          final isCompleted = selectedGoal.isCompleted;
+
+          // Calculate the actual contribution amount based on percentage
+          final double contributionAmount =
+              amount * (contributionPercentage / 100.0);
+
+          // Check if this transaction will cause the goal to exceed its target
+          final willExceedTarget =
+              (selectedGoal.currentAmount + contributionAmount) >
+                  selectedGoal.targetAmount;
+
+          if (isCompleted || willExceedTarget) {
+            final overAmount =
+                (selectedGoal.currentAmount + contributionAmount) -
+                    selectedGoal.targetAmount;
 
             // Close the form first, then handle the rest
             Navigator.of(innerContext).pop();
@@ -118,13 +140,14 @@ class UIHelpers {
             _checkGoalAndProcessTransaction(
               context: context, // Use the parent context
               selectedGoal: selectedGoal,
-              amount: amount,
+              amount: contributionAmount,
               overAmount: overAmount,
               transaction: transaction,
               isUpdate: isUpdate,
               userId: userId,
               financeProvider: financeProvider,
               scaffoldMessenger: scaffoldMessenger,
+              isCompleted: isCompleted,
             );
 
             return;
@@ -350,7 +373,42 @@ class UIHelpers {
                                     "Goal in dropdown: ${goal.title} (${goal.id})");
                                 return DropdownMenuItem<String?>(
                                   value: goal.id,
-                                  child: Text(goal.title),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        goal.title,
+                                        style: goal.isCompleted
+                                            ? TextStyle(
+                                                color: Theme.of(innerContext)
+                                                    .colorScheme
+                                                    .primary,
+                                                fontWeight: FontWeight.bold,
+                                              )
+                                            : null,
+                                      ),
+                                      if (goal.isCompleted) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green
+                                                .withValues(alpha: 50),
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                          ),
+                                          child: const Text(
+                                            'Completed',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.green,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 );
                               }),
                             ],
@@ -371,6 +429,24 @@ class UIHelpers {
                                     _logger.info(
                                         "Selected goal: ${selectedGoal.title} (${selectedGoal.id})");
 
+                                    // Check if the goal is already completed
+                                    if (selectedGoal.isCompleted) {
+                                      // Show warning immediately
+                                      ScaffoldMessenger.of(innerContext)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                              'Warning: "${selectedGoal.title}" is already completed. Adding more funds will exceed the target amount.'),
+                                          backgroundColor: Colors.orange,
+                                          duration: const Duration(seconds: 5),
+                                          action: SnackBarAction(
+                                            label: 'OK',
+                                            onPressed: () {},
+                                          ),
+                                        ),
+                                      );
+                                    }
+
                                     // Set the transaction title to reflect the goal contribution
                                     if (titleController.text.isEmpty ||
                                         titleController.text
@@ -383,6 +459,91 @@ class UIHelpers {
                               });
                             },
                           ),
+
+                          // Only show contribution percentage slider when a goal is selected
+                          if (contributesToGoal) ...[
+                            const SizedBox(height: 16),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                      left: 8.0, bottom: 4.0),
+                                  child: Text(
+                                    'Contribution Percentage: ${contributionPercentage.toStringAsFixed(0)}%',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Slider(
+                                        value: contributionPercentage,
+                                        min: 1,
+                                        max: 100,
+                                        divisions: 20,
+                                        label:
+                                            '${contributionPercentage.toStringAsFixed(0)}%',
+                                        onChanged: (value) {
+                                          setState(() {
+                                            contributionPercentage = value;
+                                            percentageController.text =
+                                                value.toStringAsFixed(0);
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      width: 60,
+                                      child: TextFormField(
+                                        controller: percentageController,
+                                        keyboardType: TextInputType.number,
+                                        textAlign: TextAlign.center,
+                                        decoration: const InputDecoration(
+                                          suffixText: '%',
+                                          contentPadding: EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 8),
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        onChanged: (value) {
+                                          final percentage =
+                                              int.tryParse(value);
+                                          if (percentage != null &&
+                                              percentage > 0 &&
+                                              percentage <= 100) {
+                                            setState(() {
+                                              contributionPercentage =
+                                                  percentage.toDouble();
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                if (amountController.text.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8.0),
+                                    child: Text(
+                                      contributionPercentage < 100
+                                          ? 'Will contribute ${contributionPercentage.toStringAsFixed(0)}% (\$${((double.tryParse(amountController.text) ?? 0) * contributionPercentage / 100).toStringAsFixed(2)}) to goal'
+                                          : 'Will contribute the full amount to goal',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(innerContext)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                           const SizedBox(height: 16),
                         ],
 
@@ -602,6 +763,11 @@ class UIHelpers {
     try {
       await categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
 
+      // Map transaction type to category type
+      final categoryType = type == app_model.TransactionType.expense
+          ? CategoryType.expense
+          : CategoryType.income;
+
       // If no categories found for the user, return default categories
       if (categoryProvider.categories.isEmpty) {
         if (type == app_model.TransactionType.expense) {
@@ -629,19 +795,26 @@ class UIHelpers {
         }
       }
 
-      // Extract category names and ensure they're unique
+      // Extract category names and ensure they're unique - filter by type
       final Set<String> uniqueCategoryNames = {};
 
       for (var category in categoryProvider.categories) {
-        // Safely access name property
-        final name = category.name;
-        if (name.isNotEmpty) {
-          uniqueCategoryNames.add(name);
+        // Only include categories of the matching type
+        if (category.type == categoryType) {
+          // Safely access name property
+          final name = category.name;
+          if (name.isNotEmpty) {
+            uniqueCategoryNames.add(name);
+          }
         }
       }
 
       // Add 'Other' if not already in the list
-      uniqueCategoryNames.add('Other');
+      if (type == app_model.TransactionType.expense) {
+        uniqueCategoryNames.add('Other');
+      } else {
+        uniqueCategoryNames.add('Other Income');
+      }
 
       return uniqueCategoryNames.toList();
     } catch (e) {
@@ -673,12 +846,27 @@ class UIHelpers {
     required String userId,
     required FinanceProvider financeProvider,
     required ScaffoldMessengerState scaffoldMessenger,
+    required bool isCompleted,
   }) async {
+    // Get percentage info for message
+    String percentageInfo = "";
+    if (transaction.contributionPercentage != null &&
+        transaction.contributionPercentage! < 100) {
+      percentageInfo =
+          " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of the income)";
+    }
+
+    // Different title and message based on whether the goal is already completed
+    final title =
+        isCompleted ? 'Goal Already Completed' : 'Goal Will Be Exceeded';
+    final message = isCompleted
+        ? 'The goal "${selectedGoal.title}" is already completed with \$${selectedGoal.currentAmount.toStringAsFixed(2)} of \$${selectedGoal.targetAmount.toStringAsFixed(2)}. Adding \$${amount.toStringAsFixed(2)}$percentageInfo will exceed the target by \$${overAmount.toStringAsFixed(2)}. Do you wish to continue?'
+        : 'This goal "${selectedGoal.title}" is already at \$${selectedGoal.currentAmount.toStringAsFixed(2)} of \$${selectedGoal.targetAmount.toStringAsFixed(2)}. Adding \$${amount.toStringAsFixed(2)}$percentageInfo will exceed the target by \$${overAmount.toStringAsFixed(2)}. Do you wish to continue?';
+
     final shouldProceed = await showConfirmationDialog(
       context: context,
-      title: 'Goal Will Be Exceeded',
-      message:
-          'This goal "${selectedGoal.title}" is already at \$${selectedGoal.currentAmount.toStringAsFixed(2)} of \$${selectedGoal.targetAmount.toStringAsFixed(2)}. Adding \$${amount.toStringAsFixed(2)} will exceed the target by \$${overAmount.toStringAsFixed(2)}. Do you wish to continue?',
+      title: title,
+      message: message,
       confirmText: 'Continue',
       cancelText: 'Cancel',
     );
@@ -740,13 +928,37 @@ class UIHelpers {
           // Reload data
           await financeProvider.initializeFinanceData(userId);
 
-          if (result['goalChanged'] ||
-              result['goalAdded'] ||
-              result['goalRemoved'] ||
-              result['amountChanged']) {
+          // Handle different result types with appropriate UI messages
+          if (result.containsKey('isCompleted') && result['isCompleted']) {
+            // Special case for completed goals
             scaffoldMessenger.showSnackBar(
               SnackBar(
                 content: Text(result['message']),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'Dismiss',
+                  textColor: Colors.white,
+                  onPressed: () {},
+                ),
+              ),
+            );
+          } else if (result['goalChanged'] ||
+              result['goalAdded'] ||
+              result['goalRemoved'] ||
+              result['amountChanged']) {
+            // Create a message that includes percentage info if available
+            String message = result['message'];
+            if (transaction.contributesToGoal &&
+                transaction.contributionPercentage != null &&
+                transaction.contributionPercentage! < 100) {
+              message +=
+                  ' (${transaction.contributionPercentage?.toStringAsFixed(0)}% of income)';
+            }
+
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Text(message),
                 backgroundColor: Colors.green,
               ),
             );
@@ -774,9 +986,21 @@ class UIHelpers {
           // Reload data
           await financeProvider.initializeFinanceData(userId);
 
+          // Check if this was a goal contribution
+          String message = 'Transaction added successfully';
+          if (transaction.contributesToGoal) {
+            if (transaction.contributionPercentage != null &&
+                transaction.contributionPercentage! < 100) {
+              message =
+                  'Transaction added with ${transaction.contributionPercentage?.toStringAsFixed(0)}% contribution to saving goal';
+            } else {
+              message = 'Transaction added with contribution to saving goal';
+            }
+          }
+
           scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Transaction added successfully'),
+            SnackBar(
+              content: Text(message),
               backgroundColor: Colors.green,
             ),
           );

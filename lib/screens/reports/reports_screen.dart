@@ -202,7 +202,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
-                    height: 200,
+                    height: 300,
                     child: _buildBarChart(context, transactions),
                   ),
                 ],
@@ -622,12 +622,13 @@ class _ReportsScreenState extends State<ReportsScreen>
       children: [
         BarChart(
           BarChartData(
-            alignment: BarChartAlignment.spaceAround,
+            alignment: BarChartAlignment.center,
             maxY: maxValue,
             minY: 0,
+            barTouchData: BarTouchData(enabled: false),
             gridData: FlGridData(
               show: true,
-              horizontalInterval: maxValue / 4,
+              horizontalInterval: math.max(0.1, maxValue / 4),
               getDrawingHorizontalLine: (value) {
                 return FlLine(
                   color: Colors.grey.shade300,
@@ -672,7 +673,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                 sideTitles: SideTitles(
                   showTitles: true,
                   reservedSize: 60,
-                  interval: maxValue / 4,
+                  interval: math.max(0.1, maxValue / 4),
                   getTitlesWidget: (double value, TitleMeta meta) {
                     return Text(
                       '\$${value.toInt()}',
@@ -689,6 +690,7 @@ class _ReportsScreenState extends State<ReportsScreen>
             borderData: FlBorderData(
               show: false,
             ),
+            groupsSpace: 40,
             barGroups: [
               BarChartGroupData(
                 x: 0,
@@ -696,8 +698,10 @@ class _ReportsScreenState extends State<ReportsScreen>
                   BarChartRodData(
                     toY: totalIncome,
                     color: Colors.green,
-                    width: 40,
-                    borderRadius: BorderRadius.circular(4),
+                    width: 60,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(6),
+                    ),
                     backDrawRodData: BackgroundBarChartRodData(
                       show: true,
                       toY: maxValue,
@@ -712,8 +716,10 @@ class _ReportsScreenState extends State<ReportsScreen>
                   BarChartRodData(
                     toY: totalExpense,
                     color: Colors.red,
-                    width: 40,
-                    borderRadius: BorderRadius.circular(4),
+                    width: 60,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(6),
+                    ),
                     backDrawRodData: BackgroundBarChartRodData(
                       show: true,
                       toY: maxValue,
@@ -840,7 +846,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     }
 
     // Calculate appropriate interval for y-axis labels
-    final yLabelInterval = (maxValue / 4).roundToDouble();
+    final yLabelInterval = math.max(0.1, (maxValue / 4).roundToDouble());
 
     return Container(
       margin: const EdgeInsets.only(top: 12, bottom: 8, right: 12),
@@ -852,7 +858,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: false,
-                  horizontalInterval: yLabelInterval,
+                  horizontalInterval: math.max(0.1, yLabelInterval),
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
                       color: Colors.grey.shade300,
@@ -872,7 +878,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                     sideTitles: SideTitles(
                       showTitles: true,
                       reservedSize: 30,
-                      interval: 1,
+                      interval: math.max(1.0, 1),
                       getTitlesWidget: (double value, TitleMeta meta) {
                         final index = value.toInt();
                         // Only show dates at intervals
@@ -901,7 +907,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                     sideTitles: SideTitles(
                       showTitles: true,
                       reservedSize: 46,
-                      interval: yLabelInterval,
+                      interval: math.max(0.1, yLabelInterval),
                       getTitlesWidget: (double value, TitleMeta meta) {
                         if (value == 0) {
                           return const SizedBox.shrink();
