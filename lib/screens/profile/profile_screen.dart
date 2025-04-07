@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/models/user.dart';
+import 'package:wealth_wise/screens/settings/settings_screen.dart';
+import 'package:wealth_wise/screens/auth/login_screen.dart';
+import 'package:wealth_wise/screens/profile/edit_profile_screen.dart';
+import 'package:wealth_wise/screens/profile/change_password_screen.dart';
+import 'package:wealth_wise/screens/profile/delete_account_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -24,7 +29,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () {
-              Navigator.pushNamed(context, '/settings');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
             },
           ),
         ],
@@ -64,8 +72,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 32),
           ElevatedButton(
             onPressed: () {
-              // Navigate to login screen
-              Navigator.pushNamed(context, '/login');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+              );
             },
             child: const Text('Sign In'),
           ),
@@ -129,8 +139,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 24),
                   FilledButton.icon(
-                    onPressed: () {
-                      // Navigate to edit profile
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EditProfileScreen(user: user),
+                        ),
+                      );
+
+                      // Refresh the profile if changes were made
+                      if (result == true) {
+                        setState(() {});
+                      }
                     },
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit Profile'),
@@ -157,7 +177,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.lock_outline,
                   title: 'Change Password',
                   onTap: () {
-                    // Navigate to change password
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ChangePasswordScreen(),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1, indent: 72),
@@ -166,7 +191,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.notifications_outlined,
                   title: 'Notifications',
                   onTap: () {
-                    // Navigate to notifications settings
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Notification settings coming soon'),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1, indent: 72),
@@ -176,7 +205,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Language',
                   subtitle: 'English',
                   onTap: () {
-                    // Navigate to language settings
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Language settings coming soon'),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 1, indent: 72),
+                _buildProfileMenuItem(
+                  context: context,
+                  icon: Icons.delete_outline,
+                  title: 'Delete Account',
+                  subtitle: 'Remove all your data permanently',
+                  titleColor: theme.colorScheme.error,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const DeleteAccountScreen(),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -202,6 +251,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   subtitle: 'System default',
                   onTap: () {
                     // Theme settings
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SettingsScreen(),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1, indent: 72),
@@ -211,7 +266,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Currency',
                   subtitle: 'USD',
                   onTap: () {
-                    // Currency settings
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Currency settings coming soon'),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -235,7 +294,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.help_outline,
                   title: 'Help & Support',
                   onTap: () {
-                    // Navigate to help
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Help & Support coming soon'),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1, indent: 72),
@@ -244,7 +307,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.info_outline,
                   title: 'About',
                   onTap: () {
-                    // Show about dialog
+                    showAboutDialog(
+                      context: context,
+                      applicationName: 'WealthWise',
+                      applicationVersion: '1.0.0',
+                      applicationIcon: Icon(
+                        Icons.account_balance_wallet,
+                        color: theme.colorScheme.primary,
+                        size: 48,
+                      ),
+                      applicationLegalese: '© 2023 WealthWise',
+                      children: [
+                        const SizedBox(height: 16),
+                        const Text(
+                          'A finance tracking application that helps you manage your expenses, income, and savings.',
+                        ),
+                      ],
+                    );
                   },
                 ),
               ],
@@ -263,6 +342,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
 
           const SizedBox(height: 40),
+
+          // Account info footer
+          Card(
+            elevation: 0,
+            color: theme.colorScheme.surface.withValues(alpha: 0.5),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Account Info',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildAccountInfoRow(
+                    context,
+                    title: 'Account Type',
+                    value: 'Free',
+                  ),
+                  const SizedBox(height: 4),
+                  _buildAccountInfoRow(
+                    context,
+                    title: 'Member Since',
+                    value: _formatDate(user.createdAt),
+                  ),
+                  const SizedBox(height: 4),
+                  _buildAccountInfoRow(
+                    context,
+                    title: 'Last Login',
+                    value: _formatDate(user.lastLoginAt),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -290,13 +407,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String title,
     String? subtitle,
     required VoidCallback onTap,
+    Color? titleColor,
   }) {
     return ListTile(
       leading: Icon(
         icon,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
-      title: Text(title),
+      title: Text(
+        title,
+        style: titleColor != null ? TextStyle(color: titleColor) : null,
+      ),
       subtitle: subtitle != null ? Text(subtitle) : null,
       trailing: const Icon(
         Icons.arrow_forward_ios,
@@ -304,6 +425,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       onTap: onTap,
     );
+  }
+
+  Widget _buildAccountInfoRow(
+    BuildContext context, {
+    required String title,
+    required String value,
+  }) {
+    final theme = Theme.of(context);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.month}/${date.day}/${date.year}';
   }
 
   // Helper method to show logout confirmation dialog
@@ -349,8 +501,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       // Navigate to login
-      navigator.pushNamedAndRemoveUntil(
-        '/login',
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
         (route) => false,
       );
     }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/screens/auth/register_screen.dart';
 import 'package:wealth_wise/screens/auth/reset_password_screen.dart';
+import 'package:wealth_wise/screens/home/home_screen.dart';
 
 import 'package:wealth_wise/widgets/custom_action_button.dart';
 
@@ -32,15 +33,24 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
-      await context.read<AuthProvider>().signIn(
+      final success = await context.read<AuthProvider>().signIn(
             email: _emailController.text.trim(),
             password: _passwordController.text.trim(),
           );
+
+      if (mounted && success) {
+        // Force navigation to home screen after successful login
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => const HomeScreen(),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
-      final scaffoldMessenger = ScaffoldMessenger.of(context);
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text(e.toString())),
       );
@@ -179,18 +189,49 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Expanded(
                       child: CustomActionButton(
-                        onPressed: () async {
-                          final scaffoldMessenger =
-                              ScaffoldMessenger.of(context);
-                          try {
-                            await authProvider.signInWithGoogle();
-                          } catch (e) {
-                            if (!mounted) return;
-                            scaffoldMessenger.showSnackBar(
-                              SnackBar(content: Text(e.toString())),
-                            );
-                          }
-                        },
+                        onPressed: authProvider.isLoading
+                            ? null
+                            : () async {
+                                setState(() => _isLoading = true);
+                                // Capture ScaffoldMessenger before async operation
+                                final scaffoldMessenger =
+                                    ScaffoldMessenger.of(context);
+                                // Capture Navigator before async operation
+                                final navigator = Navigator.of(context);
+
+                                try {
+                                  final success =
+                                      await authProvider.signInWithGoogle();
+
+                                  if (mounted) {
+                                    if (!success) {
+                                      scaffoldMessenger.showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Failed to sign in with Google')),
+                                      );
+                                    } else {
+                                      // Use MaterialPageRoute instead of named routes
+                                      navigator.pushReplacement(
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const HomeScreen(),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    scaffoldMessenger.showSnackBar(
+                                      SnackBar(content: Text(e.toString())),
+                                    );
+                                  }
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _isLoading = false);
+                                  }
+                                }
+                              },
                         label: 'Google',
                         icon: Icons.g_mobiledata,
                         isSmall: true,
@@ -200,15 +241,42 @@ class _LoginScreenState extends State<LoginScreen> {
                     Expanded(
                       child: CustomActionButton(
                         onPressed: () async {
+                          setState(() => _isLoading = true);
                           final scaffoldMessenger =
                               ScaffoldMessenger.of(context);
+                          // Capture Navigator before async operation
+                          final navigator = Navigator.of(context);
+
                           try {
-                            await authProvider.signInWithFacebook();
+                            final success =
+                                await authProvider.signInWithFacebook();
+
+                            if (mounted) {
+                              if (!success) {
+                                scaffoldMessenger.showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          'Failed to sign in with Facebook')),
+                                );
+                              } else {
+                                // Use MaterialPageRoute instead of named routes
+                                navigator.pushReplacement(
+                                  MaterialPageRoute(
+                                    builder: (context) => const HomeScreen(),
+                                  ),
+                                );
+                              }
+                            }
                           } catch (e) {
-                            if (!mounted) return;
-                            scaffoldMessenger.showSnackBar(
-                              SnackBar(content: Text(e.toString())),
-                            );
+                            if (mounted) {
+                              scaffoldMessenger.showSnackBar(
+                                SnackBar(content: Text(e.toString())),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isLoading = false);
+                            }
                           }
                         },
                         label: 'Facebook',

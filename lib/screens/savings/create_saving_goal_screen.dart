@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
 
 class CreateSavingGoalScreen extends StatefulWidget {
   final SavingGoal? existingGoal;
@@ -164,7 +165,8 @@ class _CreateSavingGoalScreenState extends State<CreateSavingGoalScreen> {
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: LoadingIndicator(size: 50, message: 'Creating goal...'))
             : SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
                 child: Form(

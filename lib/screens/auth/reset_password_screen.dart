@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/providers/auth_provider.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -46,10 +47,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child:
-              _resetEmailSent
-                  ? _buildSuccessScreen(theme)
-                  : _buildResetForm(authProvider, theme),
+          child: _resetEmailSent
+              ? _buildSuccessScreen(theme)
+              : _buildResetForm(authProvider, theme),
         ),
       ),
     );
@@ -100,13 +100,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             onPressed: authProvider.isLoading ? null : _resetPassword,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child:
-                  authProvider.isLoading
-                      ? const CircularProgressIndicator()
-                      : const Text(
-                        'Reset Password',
-                        style: TextStyle(fontSize: 16),
-                      ),
+              child: authProvider.isLoading
+                  ? const LoadingIndicator(size: 24, message: '')
+                  : const Text(
+                      'Reset Password',
+                      style: TextStyle(fontSize: 16),
+                    ),
             ),
           ),
           if (authProvider.error != null)

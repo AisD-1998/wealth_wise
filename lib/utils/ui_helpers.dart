@@ -10,6 +10,8 @@ import '../providers/category_provider.dart';
 import 'package:logging/logging.dart';
 import '../models/category.dart';
 
+import 'package:wealth_wise/widgets/loading_animation_utils.dart';
+
 /// Utility class for common UI helper methods
 class UIHelpers {
   static final _logger = Logger('UIHelpers');
@@ -626,7 +628,7 @@ class UIHelpers {
               ),
             ],
           ),
-          child: const CircularProgressIndicator(),
+          child: LoadingAnimationUtils.smallDollarSpinner(size: 60),
         ),
       ),
     );
@@ -900,21 +902,15 @@ class UIHelpers {
   }) async {
     // Show loading indicator
     scaffoldMessenger.showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Row(
           children: [
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-              ),
-            ),
-            SizedBox(width: 16),
-            Text('Saving changes...'),
+            LoadingAnimationUtils.smallDollarSpinner(size: 20),
+            const SizedBox(width: 16),
+            const Text('Saving changes...'),
           ],
         ),
-        duration: Duration(seconds: 2),
+        duration: const Duration(seconds: 2),
       ),
     );
 

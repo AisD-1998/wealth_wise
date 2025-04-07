@@ -6,6 +6,7 @@ import 'package:wealth_wise/providers/expense_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/widgets/custom_action_button.dart';
+import 'package:wealth_wise/screens/settings/categories_screen.dart';
 
 class ExpenseForm extends StatefulWidget {
   final Expense? expense;
@@ -245,7 +246,11 @@ class _ExpenseFormState extends State<ExpenseForm> {
                 children: [
                   TextButton.icon(
                     onPressed: () {
-                      Navigator.pushNamed(context, '/categories');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const CategoriesScreen()),
+                      );
                     },
                     icon: const Icon(Icons.settings, size: 16),
                     label: const Text('Manage Categories'),

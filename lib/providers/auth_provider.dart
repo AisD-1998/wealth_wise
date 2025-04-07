@@ -32,8 +32,21 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      // Check if there's already a logged-in user
+      firebase_auth.User? currentUser = _auth.currentUser;
+      if (currentUser != null) {
+        // Get user data from Firestore
+        final userData = await _databaseService.getUserData(currentUser.uid);
+        if (userData != null) {
+          _user = userData;
+        }
+      }
+
       // Listen for auth state changes
       _auth.authStateChanges().listen((firebase_auth.User? firebaseUser) async {
+        _isLoading = true; // Start loading on state change
+        notifyListeners();
+
         if (firebaseUser != null) {
           // Get user data from Firestore
           final userData = await _databaseService.getUserData(firebaseUser.uid);
@@ -176,10 +189,28 @@ class AuthProvider with ChangeNotifier {
     try {
       // Create an instance of AuthService to handle the Google sign-in
       final authService = AuthService();
+
+      // First attempt to sign in with Google
       final userCredential = await authService.signInWithGoogle();
 
       if (userCredential.user != null) {
-        // User data will be loaded via authStateChanges listener
+        // Update user's last login time
+        if (_user != null) {
+          await _databaseService
+              .updateUserData(_user!.copyWith(lastLoginAt: DateTime.now()));
+        }
+
+        // Initialize default categories if needed
+        await _databaseService
+            .initializeDefaultCategories(userCredential.user!.uid);
+
+        // Force refresh user data
+        final userData =
+            await _databaseService.getUserData(userCredential.user!.uid);
+        if (userData != null) {
+          _user = userData;
+        }
+
         _isLoading = false;
         notifyListeners();
         return true;

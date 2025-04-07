@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/models/category.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({super.key});
@@ -492,7 +493,9 @@ class _CategoriesScreenState extends State<CategoriesScreen>
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child:
+                  LoadingIndicator(size: 50, message: 'Loading categories...'))
           : TabBarView(
               controller: _tabController,
               children: [

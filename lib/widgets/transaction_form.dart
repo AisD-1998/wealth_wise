@@ -9,6 +9,7 @@ import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
+import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 
 class TransactionForm extends StatefulWidget {
   final Transaction? transaction;
@@ -764,13 +765,12 @@ class _TransactionFormState extends State<TransactionForm> {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: _isLoading
-                          ? const SizedBox(
+                          ? SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              child: LoadingAnimationUtils.smallDollarSpinner(
+                                size: 20,
+                                primaryColor: Colors.white,
                               ),
                             )
                           : Text(

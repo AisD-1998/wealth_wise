@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
-import 'package:wealth_wise/services/shared_prefs.dart';
-import 'package:wealth_wise/widgets/custom_action_button.dart';
+import 'package:wealth_wise/theme/app_theme.dart';
+import 'package:wealth_wise/screens/subscription/subscription_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class OnboardingScreen extends StatefulWidget {
+  static const routeName = '/onboarding';
+
   const OnboardingScreen({super.key});
 
   @override
@@ -13,27 +17,53 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
+  bool _showSubscriptionOffer = false;
 
-  final List<OnboardingItem> _items = [
-    OnboardingItem(
-      title: 'Track Your Spending',
-      description:
-          'Monitor all your expenses and income in one place with easy-to-understand visualizations.',
-      icon: Icons.bar_chart_rounded,
-    ),
-    OnboardingItem(
-      title: 'Set Saving Goals',
-      description:
-          'Create and track saving goals to help you achieve your financial dreams.',
-      icon: Icons.savings_rounded,
-    ),
-    OnboardingItem(
-      title: 'Smart Budgeting',
-      description:
-          'Set budgets for different categories and get notified when you are near your limits.',
-      icon: Icons.account_balance_wallet_rounded,
-    ),
+  final List<Map<String, dynamic>> _onboardingData = [
+    {
+      'title': 'Welcome to WealthWise',
+      'description':
+          'Your personal finance companion for smarter money management.',
+      'icon': Icons.account_balance_wallet,
+      'image': 'assets/images/onboarding_1.png',
+      'color': AppTheme.primaryGreen,
+    },
+    {
+      'title': 'Track Your Spending',
+      'description':
+          'Easily record and categorize your expenses to understand where your money goes.',
+      'icon': Icons.sync_alt,
+      'image': 'assets/images/onboarding_2.png',
+      'color': AppTheme.secondaryBlue,
+    },
+    {
+      'title': 'Set Savings Goals',
+      'description':
+          'Define targets for your financial future and track your progress.',
+      'icon': Icons.flag,
+      'image': 'assets/images/onboarding_3.png',
+      'color': AppTheme.warningOrange,
+    },
+    {
+      'title': 'Detailed Reports',
+      'description':
+          'Visualize your finances with beautiful charts and insightful analytics.',
+      'icon': Icons.insights,
+      'image': 'assets/images/onboarding_4.png',
+      'color': AppTheme.primaryGreen,
+    },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -41,88 +71,183 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  // Complete onboarding and navigate to login screen
-  void _completeOnboarding() async {
-    // Set the flag to indicate onboarding is complete
-    await SharedPrefs.setBool('hasCompletedOnboarding', true);
+  void _showSubscriptionScreen() {
+    setState(() {
+      _showSubscriptionOffer = true;
+    });
+  }
 
-    if (!mounted) return;
+  void _completeOnboarding() async {
+    // Mark onboarding as complete
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hasCompletedOnboarding', true);
 
     // Navigate to login screen
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => const LoginScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    if (_showSubscriptionOffer) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, dynamic result) {
+          if (!didPop) {
+            // Complete onboarding if user tries to go back from subscription screen
+            _completeOnboarding();
+          }
+          return;
+        },
+        child: Scaffold(
+          body: SubscriptionScreen(
+            onSkip: _completeOnboarding, // Pass the completion function
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
+      body: Column(
+        children: [
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: _onboardingData.length,
+              onPageChanged: (int page) {
+                setState(() {
+                  _currentPage = page;
+                });
+              },
+              itemBuilder: (context, index) {
+                return _buildOnboardingPage(
+                  _onboardingData[index]['title'],
+                  _onboardingData[index]['description'],
+                  _onboardingData[index]['icon'],
+                  _onboardingData[index]['image'],
+                  _onboardingData[index]['color'],
+                );
+              },
+            ),
+          ),
+          _buildPageIndicator(),
+          _buildBottomButtons(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnboardingPage(String title, String description, IconData icon,
+      String imagePath, Color color) {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Spacer(),
+          Container(
+            width: 160,
+            height: 160,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 80,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 40),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            description,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+            textAlign: TextAlign.center,
+          ),
+          const Spacer(flex: 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPageIndicator() {
+    List<Widget> indicators = [];
+    for (int i = 0; i < _onboardingData.length; i++) {
+      indicators.add(
+        Container(
+          width: i == _currentPage ? 16.0 : 8.0,
+          height: 8.0,
+          margin: const EdgeInsets.symmetric(horizontal: 4.0),
+          decoration: BoxDecoration(
+            color: i == _currentPage ? AppTheme.primaryGreen : Colors.grey[300],
+            borderRadius: BorderRadius.circular(4.0),
+          ),
+        ),
+      );
+    }
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: indicators,
+    );
+  }
+
+  Widget _buildBottomButtons() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                itemCount: _items.length,
-                onPageChanged: (int page) {
-                  setState(() {
-                    _currentPage = page;
-                  });
-                },
-                itemBuilder: (context, index) {
-                  return _buildOnboardingPage(_items[index], theme);
-                },
+            TextButton(
+              onPressed: () {
+                _showSubscriptionScreen();
+              },
+              child: Text(
+                'Skip',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontSize: 16,
+                ),
               ),
             ),
-
-            // Page indicator
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: _buildPageIndicator(),
+            ElevatedButton(
+              onPressed: () {
+                if (_currentPage < _onboardingData.length - 1) {
+                  _pageController.nextPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                } else {
+                  _showSubscriptionScreen();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryGreen,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
               ),
-            ),
-
-            // Navigation buttons
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Skip button
-                  _currentPage < _items.length - 1
-                      ? TextButton(
-                          onPressed: _completeOnboarding,
-                          child: const Text('Skip'),
-                        )
-                      : const SizedBox(width: 80),
-
-                  // Next/Get Started button
-                  CustomActionButton(
-                    onPressed: () {
-                      if (_currentPage < _items.length - 1) {
-                        _pageController.nextPage(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
-                      } else {
-                        _completeOnboarding();
-                      }
-                    },
-                    label: _currentPage < _items.length - 1
-                        ? 'Next'
-                        : 'Get Started',
-                    icon: _currentPage < _items.length - 1
-                        ? Icons.arrow_forward
-                        : Icons.check_circle_outline,
-                    isSmall: true,
-                  ),
-                ],
+              child: Text(
+                _currentPage < _onboardingData.length - 1
+                    ? 'Next'
+                    : 'Get Started',
               ),
             ),
           ],
@@ -130,85 +255,4 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
     );
   }
-
-  Widget _buildOnboardingPage(OnboardingItem item, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 26),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              item.icon,
-              size: 80,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-
-          const SizedBox(height: 48),
-
-          // Title
-          Text(
-            item.title,
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.primary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-
-          const SizedBox(height: 24),
-
-          // Description
-          Text(
-            item.description,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 179),
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildPageIndicator() {
-    List<Widget> indicators = [];
-
-    for (int i = 0; i < _items.length; i++) {
-      indicators.add(
-        Container(
-          width: i == _currentPage ? 16.0 : 8.0,
-          height: 8.0,
-          margin: const EdgeInsets.symmetric(horizontal: 4.0),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color: i == _currentPage
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.primary.withValues(alpha: 77),
-          ),
-        ),
-      );
-    }
-
-    return indicators;
-  }
-}
-
-class OnboardingItem {
-  final String title;
-  final String description;
-  final IconData icon;
-
-  OnboardingItem({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
 }

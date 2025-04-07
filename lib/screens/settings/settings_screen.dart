@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/theme_provider.dart';
+import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
+import 'package:wealth_wise/screens/profile/profile_screen.dart';
+import 'package:wealth_wise/screens/settings/categories_screen.dart';
+import 'package:wealth_wise/screens/settings/subscription_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -56,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
+    final subscriptionProvider = Provider.of<SubscriptionProvider>(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -88,7 +93,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: Text(authProvider.user?.displayName ?? 'User'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
-              Navigator.pushNamed(context, '/profile');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              );
+            },
+          ),
+
+          const Divider(indent: 72, endIndent: 0),
+
+          // Subscription
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorScheme.primaryContainer,
+              child: Icon(
+                Icons.card_membership,
+                color: colorScheme.onPrimaryContainer,
+              ),
+            ),
+            title: const Text('Subscription'),
+            subtitle:
+                Text(subscriptionProvider.isSubscribed ? 'Premium' : 'Free'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen()),
+              );
             },
           ),
 
@@ -188,7 +220,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Manage expense categories'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
-              Navigator.pushNamed(context, '/categories');
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const CategoriesScreen()),
+              );
             },
           ),
 

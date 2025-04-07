@@ -7,6 +7,9 @@ import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/services/auth_service.dart';
+import 'package:wealth_wise/screens/profile/profile_screen.dart';
+import 'package:wealth_wise/screens/settings/settings_screen.dart';
+import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -67,12 +70,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             IconButton(
               icon: const Icon(Icons.person_outline),
               tooltip: 'Profile',
-              onPressed: () => Navigator.pushNamed(context, '/profile'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              ),
             ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
-            onPressed: () => Navigator.pushNamed(context, '/settings'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
@@ -146,8 +155,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () =>
-                      Navigator.pushNamed(context, '/transactions'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const TransactionsScreen()),
+                  ),
                   child: const Text('See All'),
                 ),
               ],

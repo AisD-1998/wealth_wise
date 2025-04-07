@@ -6,25 +6,28 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wealth_wise/firebase_options.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
-import 'package:wealth_wise/screens/auth/register_screen.dart';
-import 'package:wealth_wise/screens/auth/reset_password_screen.dart';
+
 import 'package:wealth_wise/screens/home/home_screen.dart';
 import 'package:wealth_wise/screens/onboarding/onboarding_screen.dart';
 import 'package:wealth_wise/screens/settings/settings_screen.dart';
-import 'package:wealth_wise/screens/profile/profile_screen.dart';
-import 'package:wealth_wise/screens/savings/savings_screen.dart';
-import 'package:wealth_wise/screens/reports/reports_screen.dart';
-import 'package:wealth_wise/screens/savings/create_saving_goal_screen.dart';
+
 import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
+
 import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/services/database_service.dart';
-import 'package:wealth_wise/constants/theme.dart';
+import 'package:wealth_wise/theme/app_theme.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:wealth_wise/providers/expense_provider.dart';
+import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
+import 'package:wealth_wise/providers/theme_provider.dart';
+import 'package:wealth_wise/services/billing_service.dart';
 
 // Flag to toggle Firebase auth (set to false for demo mode)
 const bool useFirebase = true;
@@ -50,6 +53,9 @@ class SharedPrefs {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize SharedPrefs
+  await SharedPrefs.init();
+
   // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
@@ -66,6 +72,23 @@ void main() async {
     }
   });
 
+  // Initialize MobileAds with test app ID
+  await MobileAds.instance.initialize();
+
+  // Initialize billing service
+  final billingService = BillingService();
+  await billingService.initialize();
+
+  // Ensure in_app_purchase is initialized
+  final inAppPurchase = InAppPurchase.instance;
+  final isAvailable = await inAppPurchase.isAvailable();
+  final logger = Logger('Main');
+  if (!isAvailable) {
+    logger.warning('In-app purchase is not available on this device');
+  } else {
+    logger.info('In-app purchase is available on this device');
+  }
+
   // Create providers
   final authService = AuthService();
   final databaseService = DatabaseService();
@@ -75,6 +98,7 @@ void main() async {
     prefs: prefs,
     authService: authService,
     databaseService: databaseService,
+    billingService: billingService,
   ));
 }
 
@@ -82,12 +106,14 @@ class MyApp extends StatefulWidget {
   final SharedPreferences prefs;
   final AuthService authService;
   final DatabaseService databaseService;
+  final BillingService billingService;
 
   const MyApp({
     super.key,
     required this.prefs,
     required this.authService,
     required this.databaseService,
+    required this.billingService,
   });
 
   @override
@@ -163,9 +189,11 @@ class MyNavigatorObserver extends NavigatorObserver {
   void _refreshDataIfNeeded(Route<dynamic>? route) {
     if (route == null) return;
 
-    // Get the route name or screen type
-    final settings = route.settings;
-    if (settings.name == '/categories' || settings.name == '/transactions') {
+    // Get the route widget type
+    final routeWidget = route is MaterialPageRoute
+        ? route.builder(route.navigator!.context)
+        : null;
+    if (routeWidget is CategoriesScreen || routeWidget is TransactionsScreen) {
       // Get the navigator context
       final navigatorContext = route.navigator?.context;
       if (navigatorContext == null) return;
@@ -199,6 +227,7 @@ class _MyAppState extends State<MyApp> {
         // 1. First provide services that don't depend on other providers
         Provider<DatabaseService>.value(value: widget.databaseService),
         Provider<AuthService>.value(value: widget.authService),
+        Provider<BillingService>.value(value: widget.billingService),
 
         // 2. Auth provider must be initialized first
         ChangeNotifierProvider(create: (_) => AuthProvider()),
@@ -211,13 +240,42 @@ class _MyAppState extends State<MyApp> {
 
         // 5. Expense provider
         ChangeNotifierProvider(create: (_) => ExpenseProvider()),
+
+        // 6. Subscription provider
+        ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
+
+        // 7. Theme provider
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, authProvider, _) {
           if (authProvider.isLoading) {
-            return const MaterialApp(
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.lightTheme(),
+              darkTheme: AppTheme.darkTheme(),
+              themeMode: ThemeMode.system,
               home: Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      LoadingIndicator(
+                        size: 80.0,
+                        message: 'Welcome to WealthWise',
+                        useDollarSpinner: true,
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Setting up your financial dashboard...',
+                        style: TextStyle(
+                          color: AppTheme.neutralGray,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             );
           }
@@ -258,23 +316,7 @@ class _MyAppState extends State<MyApp> {
               Locale('es', ''),
               Locale('fr', ''),
             ],
-            home: authProvider.user == null
-                ? const LoginScreen()
-                : _buildHomeScreen(authProvider),
-            routes: {
-              '/login': (context) => const LoginScreen(),
-              '/register': (context) => const RegisterScreen(),
-              '/reset_password': (context) => const ResetPasswordScreen(),
-              '/home': (context) => const HomeScreen(),
-              '/profile': (context) => const ProfileScreen(),
-              '/transactions': (context) => const TransactionsScreen(),
-              '/savings/goals': (context) => const SavingsScreen(),
-              '/savings/create_goal': (context) =>
-                  const CreateSavingGoalScreen(),
-              '/reports': (context) => const ReportsScreen(),
-              '/settings': (context) => const SettingsScreen(),
-              '/categories': (context) => const CategoriesScreen(),
-            },
+            home: _buildHomeScreen(authProvider),
           );
         },
       ),
@@ -284,9 +326,26 @@ class _MyAppState extends State<MyApp> {
   Widget _buildHomeScreen(AuthProvider authProvider) {
     // If loading, show loading screen
     if (authProvider.isLoading) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(
-          child: CircularProgressIndicator(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              LoadingIndicator(
+                size: 80.0,
+                message: 'Welcome to WealthWise',
+                useDollarSpinner: true,
+              ),
+              SizedBox(height: 30),
+              Text(
+                'Managing your finances',
+                style: TextStyle(
+                  color: AppTheme.neutralGray,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -295,7 +354,7 @@ class _MyAppState extends State<MyApp> {
     if (!authProvider.isLoggedIn) {
       // Check if onboarding has been shown
       final hasCompletedOnboarding =
-          SharedPrefs.getBool('hasCompletedOnboarding') ?? false;
+          widget.prefs.getBool('hasCompletedOnboarding') ?? false;
 
       if (!hasCompletedOnboarding) {
         return const OnboardingScreen();

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/screens/home/home_screen.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -208,7 +209,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: authProvider.isLoading
-                              ? const CircularProgressIndicator()
+                              ? const LoadingIndicator(size: 24, message: '')
                               : const Text(
                                   'Create Account',
                                   style: TextStyle(fontSize: 16),

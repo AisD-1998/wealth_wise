@@ -9,9 +9,12 @@ import 'package:wealth_wise/screens/settings/categories_screen.dart';
 import 'package:wealth_wise/screens/savings/savings_screen.dart';
 import 'package:wealth_wise/screens/reports/reports_screen.dart';
 import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
+import 'package:wealth_wise/screens/profile/profile_screen.dart';
+import 'package:wealth_wise/screens/settings/settings_screen.dart';
 import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
+import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -79,47 +82,10 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.person_outline),
               tooltip: 'Profile',
               onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Profile'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.account_circle, size: 50),
-                        const SizedBox(height: 16),
-                        Text(
-                          Provider.of<AuthProvider>(context)
-                                  .user
-                                  ?.displayName ??
-                              'User',
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          Provider.of<AuthProvider>(context).user?.email ??
-                              'No email',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          icon: const Icon(Icons.logout),
-                          label: const Text('Sign Out'),
-                          onPressed: () {
-                            Provider.of<AuthProvider>(context, listen: false)
-                                .signOut();
-                            Navigator.pop(context);
-                          },
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
-                      ),
-                    ],
-                  ),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const ProfileScreen()),
                 );
               },
             ),
@@ -127,19 +93,9 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Settings'),
-                  content: const Text(
-                      'Settings will be available in future updates.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
             },
           ),
@@ -301,8 +257,11 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () =>
-                      Navigator.pushNamed(context, '/transactions'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const TransactionsScreen()),
+                  ),
                   child: const Text('See All'),
                 ),
               ],
@@ -661,10 +620,15 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                       .getSavingGoalById(transaction.goalId!),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8.0),
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
                         child: Center(
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: LoadingAnimationUtils.smallDollarSpinner(
+                                size: 20),
+                          ),
                         ),
                       );
                     }

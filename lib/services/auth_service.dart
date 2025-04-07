@@ -115,7 +115,17 @@ class AuthService {
 
       // Check if Google Play Services are available (on Android)
       final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      // Use silent sign-in first to prevent UI flickering if possible
+      GoogleSignInAccount? googleUser;
+      try {
+        googleUser = await googleSignIn.signInSilently();
+      } catch (e) {
+        _logger.warning('Silent sign in failed: $e');
+      }
+
+      // If silent sign-in failed, try regular sign-in
+      googleUser ??= await googleSignIn.signIn();
 
       if (googleUser == null) {
         _logger.warning('Google sign in was cancelled by the user');

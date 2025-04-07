@@ -8,6 +8,8 @@ import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
+import 'package:wealth_wise/widgets/loading_animation_utils.dart';
+import 'package:wealth_wise/widgets/loading_indicator.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -161,8 +163,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
+                      const LoadingIndicator(
+                        size: 30,
+                        message: '',
+                      ),
+                      const SizedBox(height: 16),
                       Text('Fixing database issues...'),
                     ],
                   ),
@@ -238,7 +243,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       body: RefreshIndicator(
         onRefresh: _loadTransactions,
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(
+                child: LoadingIndicator(
+                    size: 50, message: 'Loading transactions...'))
             : filteredTransactions.isEmpty
                 ? Center(
                     child: Column(
@@ -602,22 +609,7 @@ class _TransactionListItemState extends State<TransactionListItem> {
           if (transaction.id != null) {
             // Show loading indicator
             scaffoldMessenger.showSnackBar(
-              const SnackBar(
-                content: Row(
-                  children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Text('Deleting transaction...'),
-                  ],
-                ),
-                duration: Duration(seconds: 2),
-              ),
+              LoadingAnimationUtils.loadingSnackBar('Deleting transaction...'),
             );
 
             final success =
@@ -816,12 +808,12 @@ class _TransactionListItemState extends State<TransactionListItem> {
                               builder: (context, snapshot) {
                                 if (snapshot.connectionState ==
                                     ConnectionState.waiting) {
-                                  return const Center(
+                                  return Center(
                                     child: SizedBox(
                                         width: 20,
                                         height: 20,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2)),
+                                        child: LoadingAnimationUtils
+                                            .smallDollarSpinner(size: 20)),
                                   );
                                 }
 
@@ -968,22 +960,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
                               if (confirm == true) {
                                 // Show loading indicator
                                 scaffoldMessenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Row(
-                                      children: [
-                                        SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                        SizedBox(width: 16),
-                                        Text('Deleting transaction...'),
-                                      ],
-                                    ),
-                                    duration: Duration(seconds: 2),
-                                  ),
+                                  LoadingAnimationUtils.loadingSnackBar(
+                                      'Deleting transaction...'),
                                 );
 
                                 try {
@@ -1190,12 +1168,13 @@ class _TransactionListItemState extends State<TransactionListItem> {
                                     builder: (context, snapshot) {
                                       if (snapshot.connectionState ==
                                           ConnectionState.waiting) {
-                                        return const Center(
+                                        return Center(
                                           child: SizedBox(
                                               width: 20,
                                               height: 20,
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2)),
+                                              child: LoadingAnimationUtils
+                                                  .smallDollarSpinner(
+                                                      size: 20)),
                                         );
                                       }
 
@@ -1351,23 +1330,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
                                     if (confirm == true) {
                                       // Show loading indicator
                                       scaffoldMessenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Row(
-                                            children: [
-                                              SizedBox(
-                                                width: 20,
-                                                height: 20,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              ),
-                                              SizedBox(width: 16),
-                                              Text('Deleting transaction...'),
-                                            ],
-                                          ),
-                                          duration: Duration(seconds: 2),
-                                        ),
+                                        LoadingAnimationUtils.loadingSnackBar(
+                                            'Deleting transaction...'),
                                       );
 
                                       try {
@@ -1492,22 +1456,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
                   if (confirm == true) {
                     // Show loading indicator
                     scaffoldMessenger.showSnackBar(
-                      const SnackBar(
-                        content: Row(
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            ),
-                            SizedBox(width: 16),
-                            Text('Deleting transaction...'),
-                          ],
-                        ),
-                        duration: Duration(seconds: 2),
-                      ),
+                      LoadingAnimationUtils.loadingSnackBar(
+                          'Deleting transaction...'),
                     );
 
                     try {

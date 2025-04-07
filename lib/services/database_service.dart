@@ -492,6 +492,44 @@ class DatabaseService {
     }
   }
 
+  // Get specific user field data
+  Future<dynamic> getUserFieldData(String userId, String field) async {
+    try {
+      final doc = await _usersCollection.doc(userId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        return data[field];
+      }
+      return null;
+    } catch (e) {
+      _logger.warning('Error getting user field data: $e');
+      return null;
+    }
+  }
+
+  // Remove a field from the user document
+  Future<void> removeField(String userId, String field) async {
+    try {
+      await _usersCollection.doc(userId).update({
+        field: FieldValue.delete(),
+      });
+    } catch (e) {
+      _logger.warning('Error removing field from user document: $e');
+    }
+  }
+
+  // Update a specific field in the user document
+  Future<void> updateUserField(
+      String userId, String field, dynamic data) async {
+    try {
+      await _usersCollection.doc(userId).update({
+        field: data,
+      });
+    } catch (e) {
+      _logger.warning('Error updating user field: $e');
+    }
+  }
+
   // Update user data
   Future<void> updateUserData(app_user.User user) async {
     try {
