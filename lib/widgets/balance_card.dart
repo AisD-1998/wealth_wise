@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:wealth_wise/theme/app_theme.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class BalanceCard extends StatelessWidget {
   final double balance;
@@ -87,7 +88,7 @@ class BalanceCard extends StatelessWidget {
 
                   // Balance amount with large, bold font
                   Text(
-                    '\$${balance.toStringAsFixed(2)}',
+                    CurrencyFormatter.formatWithContext(context, balance),
                     style: theme.textTheme.headlineLarge?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -180,7 +181,7 @@ class BalanceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${isPositive ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
+                  '${isPositive ? '+' : '-'}${CurrencyFormatter.formatWithContext(context, amount)}',
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,

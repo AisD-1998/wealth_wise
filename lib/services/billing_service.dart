@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:wealth_wise/services/database_service.dart';
@@ -18,8 +20,8 @@ class BillingService {
   final InAppPurchase _inAppPurchase = InAppPurchase.instance;
 
   // Product IDs - make sure these match your Google Play Console configuration
-  static const String _monthlySubscriptionId = 'wealthwise_monthly_premium';
-  static const String _annualSubscriptionId = 'wealthwise_annual_premium';
+  static const String _monthlySubscriptionId = 'wealthwise_monthly';
+  static const String _annualSubscriptionId = 'wealthwise_annual';
 
   // All available products
   List<ProductDetails> _products = [];
@@ -58,6 +60,7 @@ class BillingService {
   // Keys for SharedPreferences
   static const String _isSubscribedKey = 'is_subscribed';
   static const String _subscriptionEndDateKey = 'subscription_end_date';
+  static const String _productIdKey = 'subscription_product_id';
 
   /// Initialize the billing service
   Future<void> initialize() async {
@@ -85,17 +88,27 @@ class BillingService {
         }
       }
 
-      // Configure the Google Play billing client (Android only)
-      if (Platform.isAndroid) {
-        // No need to manually call enablePendingPurchases - it's automatically
-        // handled by the plugin when you create a purchase
+      // First check if the store is available at all
+      final bool storeAvailable = await _inAppPurchase.isAvailable();
+      if (!storeAvailable) {
+        _logger.warning('Store is not available');
+        _errorMessage = 'Store is not available';
+        _isLoading = false;
+        _createFallbackProducts();
+        return;
       }
 
-      // Listen for subscription purchases
+      _logger.info('Store is available, setting up purchase stream');
+
+      // Listen for subscription purchases - this is critical for capturing purchase updates
       final purchaseStream = _inAppPurchase.purchaseStream;
+      _purchaseSubscription?.cancel();
       _purchaseSubscription = purchaseStream.listen(
         _handlePurchaseUpdates,
-        onDone: _purchaseSubscription?.cancel,
+        onDone: () {
+          _logger.info('Purchase stream done');
+          _purchaseSubscription?.cancel();
+        },
         onError: (error) {
           _logger.warning('Purchase stream error: $error');
         },
@@ -120,18 +133,15 @@ class BillingService {
   /// Load in-app purchase products from the store
   Future<void> _loadProducts() async {
     try {
-      final available = await _inAppPurchase.isAvailable();
-      if (!available) {
-        _logger.warning('In-app purchase is not available');
-        _createFallbackProducts();
-        return;
-      }
+      _logger.info('Loading IAP products');
 
       // Set up the product query with our product IDs
       final productIds = <String>{
         _monthlySubscriptionId,
         _annualSubscriptionId,
       };
+
+      _logger.info('Querying product details for: $productIds');
 
       // Query the store for product details
       final ProductDetailsResponse response =
@@ -143,10 +153,15 @@ class BillingService {
         return;
       }
 
+      if (response.notFoundIDs.isNotEmpty) {
+        _logger.warning('Some products not found: ${response.notFoundIDs}');
+      }
+
       // Store the product details
       if (response.productDetails.isNotEmpty) {
         _products = response.productDetails;
         _logger.info('Products loaded: ${_products.length}');
+        _logger.info('Product IDs: ${_products.map((p) => p.id).join(', ')}');
       } else {
         _logger.warning('No products returned from store');
         _createFallbackProducts();
@@ -165,118 +180,67 @@ class BillingService {
         id: _monthlySubscriptionId,
         title: 'Monthly Premium',
         description: 'Unlimited access for one month',
-        price: 'USD 4.99',
-        rawPrice: 4.99,
+        price: 'USD 3.99',
+        rawPrice: 3.99,
         currencyCode: 'USD',
       ),
       ProductDetails(
         id: _annualSubscriptionId,
         title: 'Annual Premium',
         description: 'Unlimited access for one year (58% discount)',
-        price: 'USD 29.99',
-        rawPrice: 29.99,
+        price: 'USD 19.99',
+        rawPrice: 19.99,
         currencyCode: 'USD',
       ),
     ];
   }
 
-  /// Buy a subscription
-  Future<void> buySubscription(ProductDetails product,
-      {bool testMode = true}) async {
-    try {
-      _logger.info('Attempting to purchase ${product.id}');
-
-      // Show a loading state
-      _isLoading = true;
-
-      if (testMode) {
-        // Simulate successful purchase for testing
-        _logger.info('TEST MODE: Simulating successful purchase');
-        await Future.delayed(const Duration(seconds: 2));
-
-        // Determine subscription end date based on product ID
-        DateTime endDate = DateTime.now();
-        if (product.id.contains('monthly')) {
-          endDate = DateTime.now().add(const Duration(days: 30));
-        } else if (product.id.contains('annual')) {
-          endDate = DateTime.now().add(const Duration(days: 365));
-        }
-
-        // Update subscription status
-        _isSubscribed = true;
-        _subscriptionEndDate = endDate;
-
-        // Save to local preferences
-        await _saveSubscriptionStatusToPrefs();
-
-        // Save to database if user is logged in
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await _saveSubscriptionToDatabase(user.uid);
-        }
-
-        _isLoading = false;
-        return;
-      }
-
-      final purchaseParam = PurchaseParam(productDetails: product);
-
-      // For subscriptions
-      bool purchaseStarted = false;
-
-      if (Platform.isAndroid) {
-        // For Google Play, use buyNonConsumable for subscriptions
-        purchaseStarted =
-            await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
-      } else if (Platform.isIOS) {
-        // For iOS, we'll implement this later
-        purchaseStarted =
-            await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
-      }
-
-      if (purchaseStarted) {
-        _logger.info('Purchase flow started for ${product.id}');
-      } else {
-        _logger.warning('Failed to start purchase flow for ${product.id}');
-        _isLoading = false;
-      }
-
-      // The actual purchase result will be delivered via the _purchaseSubscription listener
-    } catch (e) {
-      _logger.warning('Error purchasing subscription: $e');
-      _isLoading = false;
-    }
-  }
-
   /// Handle purchase updates from the store
   void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
+    _logger.info('Received ${purchaseDetailsList.length} purchase updates');
+
     for (final purchaseDetails in purchaseDetailsList) {
-      if (purchaseDetails.status == PurchaseStatus.pending) {
-        _logger.info('Purchase pending for ${purchaseDetails.productID}');
-      } else if (purchaseDetails.status == PurchaseStatus.error) {
-        _logger.warning('Purchase error: ${purchaseDetails.error?.message}');
-        _isLoading = false;
-      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-          purchaseDetails.status == PurchaseStatus.restored) {
-        // Handle successful purchase or restoration
-        _handleSuccessfulPurchase(purchaseDetails);
-      } else if (purchaseDetails.status == PurchaseStatus.canceled) {
-        _logger.info('Purchase canceled');
-        _isLoading = false;
+      _logger.info(
+          'Purchase update: ${purchaseDetails.productID} with status ${purchaseDetails.status}');
+
+      switch (purchaseDetails.status) {
+        case PurchaseStatus.pending:
+          _logger.info('Purchase pending for ${purchaseDetails.productID}');
+          break;
+
+        case PurchaseStatus.error:
+          _logger.warning('Purchase error: ${purchaseDetails.error?.message}');
+          break;
+
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          _handleSuccessfulPurchase(purchaseDetails);
+          break;
+
+        case PurchaseStatus.canceled:
+          _logger.info('Purchase canceled');
+          break;
       }
 
-      // Complete the purchase to acknowledge to Google Play that we've handled it
+      // It's critical to call completePurchase to finish the transaction
       if (purchaseDetails.pendingCompletePurchase) {
+        _logger.info('Completing purchase for ${purchaseDetails.productID}');
         _inAppPurchase.completePurchase(purchaseDetails);
       }
     }
   }
 
-  /// Handle successful purchase
+  /// Handle successful purchase or restored purchase
   Future<void> _handleSuccessfulPurchase(PurchaseDetails purchase) async {
+    _logger.info('Handling successful purchase: ${purchase.productID}');
+
     try {
-      // Verify purchase with your backend if needed
-      // For security, you should validate this receipt with a server
+      // Verify the purchase is valid
+      bool isValid = await _verifyPurchase(purchase);
+      if (!isValid) {
+        _logger.warning('Purchase verification failed: ${purchase.productID}');
+        return;
+      }
 
       // Determine subscription end date based on product ID
       DateTime endDate = DateTime.now();
@@ -290,155 +254,263 @@ class BillingService {
       _isSubscribed = true;
       _subscriptionEndDate = endDate;
 
-      // Save to local preferences
-      await _saveSubscriptionStatusToPrefs();
+      // Save the subscription details
+      await _saveSubscriptionStatusToPrefs(purchase.productID);
 
       // Save to database if user is logged in
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await _saveSubscriptionToDatabase(user.uid);
+        await _saveSubscriptionToDatabase(user.uid, purchase.productID);
       }
 
-      _isLoading = false;
+      _logger.info('Successfully processed purchase: ${purchase.productID}');
     } catch (e) {
-      _logger.warning('Error handling successful purchase: $e');
-      _isLoading = false;
+      _logger.severe('Error handling successful purchase: $e');
     }
   }
 
-  /// Restore purchases from the store
-  Future<void> restorePurchases() async {
-    try {
-      _isLoading = true;
-      await _inAppPurchase.restorePurchases();
-      _logger.info('Restore purchases initiated');
-      // The restored purchases will be delivered via the purchaseStream
-    } catch (e) {
-      _logger.warning('Error restoring purchases: $e');
-      _isLoading = false;
+  /// Verify that the purchase is valid
+  Future<bool> _verifyPurchase(PurchaseDetails purchase) async {
+    // For production, consider implementing server-side validation
+    // Here we're just checking that we have a valid purchase token
+
+    // For Android
+    if (Platform.isAndroid) {
+      final GooglePlayPurchaseDetails googlePlayPurchase =
+          purchase as GooglePlayPurchaseDetails;
+
+      // Check if we have a purchase token
+      if (googlePlayPurchase.billingClientPurchase.purchaseToken.isEmpty) {
+        return false;
+      }
+
+      // In a real app, you would send this token to your server for verification
+      // return await yourApiService.verifyPurchase(googlePlayPurchase.billingClientPurchase.purchaseToken);
+
+      return true;
     }
+    // For iOS
+    else if (Platform.isIOS) {
+      final AppStorePurchaseDetails appStorePurchase =
+          purchase as AppStorePurchaseDetails;
+
+      // Check if we have a valid purchase
+      if (appStorePurchase.verificationData.serverVerificationData.isEmpty) {
+        return false;
+      }
+
+      // In a real app, you would send this data to your server for verification
+      // return await yourApiService.verifyPurchase(appStorePurchase.verificationData);
+
+      return true;
+    }
+
+    return false;
   }
 
   /// Load subscription status from SharedPreferences
   Future<void> _loadSubscriptionStatusFromPrefs() async {
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      _isSubscribed = prefs.getBool(_isSubscribedKey) ?? false;
+    final prefs = await SharedPreferences.getInstance();
 
-      final endDateMillis = prefs.getInt(_subscriptionEndDateKey);
-      if (endDateMillis != null) {
-        _subscriptionEndDate =
-            DateTime.fromMillisecondsSinceEpoch(endDateMillis);
-      } else {
+    _isSubscribed = prefs.getBool(_isSubscribedKey) ?? false;
+
+    final endDateMillis = prefs.getInt(_subscriptionEndDateKey);
+    if (endDateMillis != null) {
+      _subscriptionEndDate = DateTime.fromMillisecondsSinceEpoch(endDateMillis);
+
+      // Check if the subscription has expired
+      if (_subscriptionEndDate!.isBefore(DateTime.now())) {
+        _isSubscribed = false;
         _subscriptionEndDate = null;
+        await _saveSubscriptionStatusToPrefs(null);
       }
-
-      _logger.info(
-          'Loaded subscription from prefs: $_isSubscribed, $_subscriptionEndDate');
-    } catch (e) {
-      _logger.warning('Error loading subscription from prefs: $e');
     }
+
+    _logger.info(
+        'Loaded subscription status from prefs: $_isSubscribed, end date: $_subscriptionEndDate');
   }
 
   /// Save subscription status to SharedPreferences
-  Future<void> _saveSubscriptionStatusToPrefs() async {
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_isSubscribedKey, _isSubscribed);
+  Future<void> _saveSubscriptionStatusToPrefs([String? productId]) async {
+    final prefs = await SharedPreferences.getInstance();
 
-      if (_subscriptionEndDate != null) {
-        await prefs.setInt(
-          _subscriptionEndDateKey,
-          _subscriptionEndDate!.millisecondsSinceEpoch,
-        );
-      } else {
-        await prefs.remove(_subscriptionEndDateKey);
+    await prefs.setBool(_isSubscribedKey, _isSubscribed);
+
+    if (_subscriptionEndDate != null) {
+      await prefs.setInt(_subscriptionEndDateKey,
+          _subscriptionEndDate!.millisecondsSinceEpoch);
+
+      if (productId != null) {
+        await prefs.setString(_productIdKey, productId);
       }
-
-      _logger.info(
-          'Saved subscription to prefs: $_isSubscribed, $_subscriptionEndDate');
-    } catch (e) {
-      _logger.warning('Error saving subscription to prefs: $e');
+    } else {
+      await prefs.remove(_subscriptionEndDateKey);
+      await prefs.remove(_productIdKey);
     }
+
+    _logger.info(
+        'Saved subscription status to prefs: $_isSubscribed, end date: $_subscriptionEndDate');
   }
 
-  /// Fetch subscription status from Firebase
+  /// Fetch subscription status from the database
   Future<void> _fetchSubscriptionFromDatabase(String userId) async {
     try {
       final subscriptionData =
           await _databaseService.getUserFieldData(userId, 'subscriptions');
 
-      if (subscriptionData != null) {
-        _isSubscribed = subscriptionData['isSubscribed'] ?? false;
+      if (subscriptionData != null &&
+          subscriptionData is Map<String, dynamic>) {
+        final endDateMillis = subscriptionData['endDateMillis'] as int?;
+        final productId = subscriptionData['productId'] as String?;
 
-        final endDateMillis = subscriptionData['endDateMillis'];
         if (endDateMillis != null) {
-          _subscriptionEndDate = DateTime.fromMillisecondsSinceEpoch(
-            endDateMillis,
-          );
-        } else {
-          _subscriptionEndDate = null;
+          final endDate = DateTime.fromMillisecondsSinceEpoch(endDateMillis);
+
+          // Only update if the database has a newer subscription
+          if (endDate.isAfter(DateTime.now())) {
+            _isSubscribed = true;
+            _subscriptionEndDate = endDate;
+
+            // Update local prefs with the latest data
+            await _saveSubscriptionStatusToPrefs(productId);
+          } else {
+            // Subscription has expired
+            _isSubscribed = false;
+            _subscriptionEndDate = null;
+
+            // Clear expired subscription data
+            await _databaseService.updateUserField(userId, 'subscriptions', {
+              'isSubscribed': false,
+              'endDateMillis': null,
+              'productId': null,
+              'updatedAt': DateTime.now().millisecondsSinceEpoch,
+            });
+
+            await _saveSubscriptionStatusToPrefs(null);
+          }
         }
-
-        // Save the fetched data to prefs for offline access
-        await _saveSubscriptionStatusToPrefs();
-
-        _logger.info(
-            'Fetched subscription from DB: $_isSubscribed, $_subscriptionEndDate');
       }
+
+      _logger.info(
+          'Fetched subscription from database for user $userId: $_isSubscribed, end date: $_subscriptionEndDate');
     } catch (e) {
       _logger.warning('Error fetching subscription from database: $e');
     }
   }
 
-  /// Save subscription status to Firebase
-  Future<void> _saveSubscriptionToDatabase(String userId) async {
+  /// Save subscription status to the database
+  Future<void> _saveSubscriptionToDatabase(String userId,
+      [String? productId]) async {
     try {
+      if (!_isSubscribed || _subscriptionEndDate == null) {
+        // Remove subscription data
+        await _databaseService.removeField(userId, 'subscriptions');
+        _logger.info('Removed subscription from database for user $userId');
+        return;
+      }
+
+      // Save subscription data
       final subscriptionData = {
         'isSubscribed': _isSubscribed,
-        'endDateMillis': _subscriptionEndDate?.millisecondsSinceEpoch,
+        'endDateMillis': _subscriptionEndDate!.millisecondsSinceEpoch,
+        'productId': productId,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
 
       await _databaseService.updateUserField(
           userId, 'subscriptions', subscriptionData);
       _logger.info(
-          'Saved subscription to DB: $_isSubscribed, $_subscriptionEndDate');
+          'Saved subscription to database for user $userId: $subscriptionData');
     } catch (e) {
       _logger.warning('Error saving subscription to database: $e');
     }
   }
 
-  /// Cancel subscription
-  Future<void> cancelSubscription() async {
+  /// Purchase a subscription
+  Future<bool> purchaseSubscription(ProductDetails product) async {
     try {
-      _isLoading = true;
+      _logger.info('Attempting to purchase ${product.id}');
 
-      // Note: In a real app, this would need to call your backend
-      // to cancel the subscription through Google Play Developer API
-      // This just updates the local status
+      // We need to ensure we have a valid product to purchase
+      ProductDetails validProduct;
 
-      // Mark subscription to end at the current end date (no renewal)
-      // User can still use the subscription until the end date
-      if (_subscriptionEndDate == null ||
-          _subscriptionEndDate!.isBefore(DateTime.now())) {
-        _isSubscribed = false;
-        _subscriptionEndDate = null;
+      // First check if this exact product is in our loaded products
+      try {
+        validProduct = _products.firstWhere((p) => p.id == product.id);
+        _logger.info('Using exact product match: ${validProduct.id}');
+      } catch (e) {
+        _logger.warning('Exact product not found in loaded products');
+
+        // If we don't have the exact product, reload products and try again
+        await _loadProducts();
+
+        try {
+          validProduct = _products.firstWhere((p) =>
+              p.id == product.id ||
+              p.id.contains(product.id) ||
+              product.id.contains(p.id));
+          _logger
+              .info('Found similar product after reload: ${validProduct.id}');
+        } catch (e) {
+          _logger.severe('Product not available after reload: ${product.id}');
+          return false;
+        }
       }
 
-      // Save to local preferences
+      // Create purchase parameters
+      final purchaseParam = PurchaseParam(productDetails: validProduct);
+
+      _logger.info('Starting non-consumable purchase for ${validProduct.id}');
+
+      // Start the purchase flow - subscriptions are non-consumable
+      bool purchaseStarted =
+          await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
+
+      _logger.info('Purchase flow started: $purchaseStarted');
+
+      // Note: actual purchase completion is handled by the purchase stream listener
+      return purchaseStarted;
+    } catch (e) {
+      _logger.severe('Error purchasing subscription: $e');
+      return false;
+    }
+  }
+
+  /// Restore previous purchases
+  Future<bool> restorePurchases() async {
+    try {
+      _logger.info('Restoring purchases');
+      await _inAppPurchase.restorePurchases();
+      _logger.info('Restore purchases initiated');
+      return true;
+    } catch (e) {
+      _logger.severe('Error restoring purchases: $e');
+      return false;
+    }
+  }
+
+  /// Cancel the subscription
+  Future<bool> cancelSubscription() async {
+    try {
+      _logger.info('Canceling subscription');
+
+      // In production, you would integrate with the store's API to cancel
+      // For now, we'll just simulate this by clearing the local status
+      _isSubscribed = false;
+      _subscriptionEndDate = null;
+
       await _saveSubscriptionStatusToPrefs();
 
-      // Save to database if user is logged in
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await _saveSubscriptionToDatabase(user.uid);
       }
 
-      _isLoading = false;
+      _logger.info('Subscription canceled');
+      return true;
     } catch (e) {
-      _logger.warning('Error canceling subscription: $e');
-      _isLoading = false;
+      _logger.severe('Error canceling subscription: $e');
+      return false;
     }
   }
 

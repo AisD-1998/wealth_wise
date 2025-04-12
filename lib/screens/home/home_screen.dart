@@ -15,6 +15,7 @@ import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -317,7 +318,8 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                         style: theme.textTheme.bodySmall,
                       ),
                       trailing: Text(
-                        '\$${transaction.amount.toStringAsFixed(2)}',
+                        CurrencyFormatter.formatWithContext(
+                            context, transaction.amount),
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: transaction.type == TransactionType.expense
                               ? theme.colorScheme.error
@@ -579,8 +581,8 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                   ),
                   Text(
                     isIncome
-                        ? '+\$${transaction.amount.toStringAsFixed(2)}'
-                        : '-\$${transaction.amount.toStringAsFixed(2)}',
+                        ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
+                        : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}',
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: isIncome ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,
@@ -656,7 +658,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Progress: \$${goal.currentAmount.toStringAsFixed(2)} / \$${goal.targetAmount.toStringAsFixed(2)}',
+                                'Progress: ${CurrencyFormatter.formatWithContext(context, goal.currentAmount)} / ${CurrencyFormatter.formatWithContext(context, goal.targetAmount)}',
                                 style: TextStyle(
                                   color: goal.isCompleted
                                       ? Colors.green

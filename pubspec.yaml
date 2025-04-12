@@ -41,6 +41,10 @@ dependencies:
   # Utilities
   uuid: ^4.3.3
   
+  # New utilities for enhanced settings screen
+  url_launcher: ^6.2.5
+  package_info_plus: ^8.3.0
+  
   # Localization
   flutter_localizations:
     sdk: flutter 

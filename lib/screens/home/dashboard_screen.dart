@@ -10,6 +10,7 @@ import 'package:wealth_wise/services/auth_service.dart';
 import 'package:wealth_wise/screens/profile/profile_screen.dart';
 import 'package:wealth_wise/screens/settings/settings_screen.dart';
 import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -215,7 +216,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: theme.textTheme.bodySmall,
                       ),
                       trailing: Text(
-                        '\$${transaction.amount.toStringAsFixed(2)}',
+                        CurrencyFormatter.formatWithContext(
+                            context, transaction.amount),
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: transaction.type == TransactionType.expense
                               ? theme.colorScheme.error
@@ -307,7 +309,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 8.0),
             Text(
-              '\$${financeProvider.totalBalance.toStringAsFixed(2)}',
+              CurrencyFormatter.formatWithContext(
+                  context, financeProvider.totalBalance),
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -371,7 +374,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(width: 4.0),
             Text(
-              '\$${amount.toStringAsFixed(2)}',
+              CurrencyFormatter.formatWithContext(context, amount),
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: isPositive ? Colors.green.shade700 : Colors.red.shade700,

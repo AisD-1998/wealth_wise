@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 import 'package:wealth_wise/widgets/loading_indicator.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -511,8 +512,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
     final transaction = widget.transaction;
     final isIncome = transaction.type == app_model.TransactionType.income;
     final formattedAmount = isIncome
-        ? '+\$${transaction.amount.toStringAsFixed(2)}'
-        : '-\$${transaction.amount.toStringAsFixed(2)}';
+        ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
+        : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}';
 
     // Get providers early to avoid deactivated context issues
     final financeProvider =
@@ -702,8 +703,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
             final isIncome =
                 transaction.type == app_model.TransactionType.income;
             final formattedAmount = isIncome
-                ? '+\$${transaction.amount.toStringAsFixed(2)}'
-                : '-\$${transaction.amount.toStringAsFixed(2)}';
+                ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
+                : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}';
 
             showModalBottomSheet(
               context: context,
@@ -859,7 +860,7 @@ class _TransactionListItemState extends State<TransactionListItem> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              '\$${goal.currentAmount.toStringAsFixed(2)} of \$${goal.targetAmount.toStringAsFixed(2)}',
+                                              '${CurrencyFormatter.formatWithContext(context, goal.currentAmount)} of ${CurrencyFormatter.formatWithContext(context, goal.targetAmount)}',
                                               style: Theme.of(context)
                                                   .textTheme
                                                   .bodySmall,
@@ -1053,8 +1054,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
                   final isIncome =
                       transaction.type == app_model.TransactionType.income;
                   final formattedAmount = isIncome
-                      ? '+\$${transaction.amount.toStringAsFixed(2)}'
-                      : '-\$${transaction.amount.toStringAsFixed(2)}';
+                      ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
+                      : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}';
 
                   showModalBottomSheet(
                     context: context,
@@ -1222,7 +1223,7 @@ class _TransactionListItemState extends State<TransactionListItem> {
                                                   ),
                                                   const SizedBox(height: 4),
                                                   Text(
-                                                    '\$${goal.currentAmount.toStringAsFixed(2)} of \$${goal.targetAmount.toStringAsFixed(2)}',
+                                                    '${CurrencyFormatter.formatWithContext(context, goal.currentAmount)} of ${CurrencyFormatter.formatWithContext(context, goal.targetAmount)}',
                                                     style: Theme.of(context)
                                                         .textTheme
                                                         .bodySmall,

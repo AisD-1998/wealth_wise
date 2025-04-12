@@ -3,10 +3,16 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/theme_provider.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
+import 'package:wealth_wise/providers/currency_provider.dart';
+import 'package:wealth_wise/providers/notification_provider.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/screens/profile/profile_screen.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
 import 'package:wealth_wise/screens/settings/subscription_screen.dart';
+import 'package:wealth_wise/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher_string.dart'
+    show launchUrlString, LaunchMode;
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,6 +22,26 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  String _appVersion = '1.0.0';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    setState(() => _isLoading = true);
+
+    final packageInfo = await PackageInfo.fromPlatform();
+
+    setState(() {
+      _appVersion = '${packageInfo.version} (${packageInfo.buildNumber})';
+      _isLoading = false;
+    });
+  }
+
   // Method to handle sign out process
   Future<void> _handleSignOut(
       BuildContext context, AuthProvider authProvider) async {
@@ -56,13 +82,340 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _openCurrencySelector(CurrencyProvider currencyProvider) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Select Currency',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(),
+                  SizedBox(
+                    height: 300,
+                    child: ListView.builder(
+                      itemCount: currencyProvider.availableCurrencies.length,
+                      itemBuilder: (context, index) {
+                        final currency =
+                            currencyProvider.availableCurrencies[index];
+                        return RadioListTile<String>(
+                          title: Text(currency),
+                          subtitle:
+                              Text(currencyProvider.getCurrencyName(currency)),
+                          value: currency,
+                          groupValue: currencyProvider.currencyCode,
+                          onChanged: (value) {
+                            if (value != null) {
+                              currencyProvider.setCurrency(value);
+                              Navigator.pop(context);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openNotificationSettings(NotificationProvider notificationProvider) {
+    TimeOfDay selectedTime = notificationProvider.reminderTime;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return SafeArea(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Notification Settings',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 24),
+                    SwitchListTile(
+                      title: const Text('Daily Expense Reminders'),
+                      subtitle: const Text(
+                          'Get a daily reminder to track your expenses'),
+                      value: notificationProvider.notificationsEnabled,
+                      onChanged: (value) {
+                        setState(() {
+                          notificationProvider.toggleNotifications(value);
+                        });
+                      },
+                    ),
+                    const Divider(),
+                    if (notificationProvider.notificationsEnabled) ...[
+                      ListTile(
+                        title: const Text('Reminder Time'),
+                        subtitle: Text(
+                            '${selectedTime.hour}:${selectedTime.minute.toString().padLeft(2, '0')}'),
+                        trailing: const Icon(Icons.access_time),
+                        onTap: () async {
+                          final TimeOfDay? pickedTime = await showTimePicker(
+                            context: context,
+                            initialTime: selectedTime,
+                          );
+                          if (pickedTime != null) {
+                            setState(() {
+                              selectedTime = pickedTime;
+                            });
+                            notificationProvider.setReminderTime(pickedTime);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: () {
+                          notificationProvider.showNotification(
+                            id: 0,
+                            title: 'Notification Test',
+                            body:
+                                'This is a test notification from WealthWise!',
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'Test notification sent. Check your console logs.'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                        child: const Text('Send Test Notification'),
+                      ),
+                    ] else ...[
+                      const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text(
+                          'Enable notifications to set reminder times and schedule notifications.',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.center,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _launchUrl(String url) async {
+    if (!await launchUrlString(url, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not launch the URL'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _showHelpAndSupport() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Help & Support',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 24),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        AppTheme.primaryGreen.withValues(alpha: 0.12),
+                    child: const Icon(Icons.help_outline,
+                        color: AppTheme.primaryGreen),
+                  ),
+                  title: const Text('Frequently Asked Questions'),
+                  onTap: () => _launchUrl('https://wealthwise.example.com/faq'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        AppTheme.secondaryBlue.withValues(alpha: 0.12),
+                    child: const Icon(Icons.mail_outline,
+                        color: AppTheme.secondaryBlue),
+                  ),
+                  title: const Text('Contact Support'),
+                  onTap: () =>
+                      _launchUrl('mailto:support@wealthwise.example.com'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        AppTheme.neutralGray.withValues(alpha: 0.12),
+                    child: const Icon(Icons.description_outlined,
+                        color: AppTheme.neutralGray),
+                  ),
+                  title: const Text('Terms of Service'),
+                  onTap: () =>
+                      _launchUrl('https://wealthwise.example.com/terms'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        AppTheme.neutralGray.withValues(alpha: 0.12),
+                    child: const Icon(Icons.privacy_tip_outlined,
+                        color: AppTheme.neutralGray),
+                  ),
+                  title: const Text('Privacy Policy'),
+                  onTap: () =>
+                      _launchUrl('https://wealthwise.example.com/privacy'),
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.center,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAboutApp() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'WealthWise',
+      applicationVersion: _appVersion,
+      applicationIcon: CircleAvatar(
+        radius: 30,
+        backgroundColor: AppTheme.primaryGreen.withValues(alpha: 0.12),
+        child: Icon(
+          Icons.account_balance_wallet,
+          color: AppTheme.primaryGreen,
+          size: 32,
+        ),
+      ),
+      applicationLegalese: '© ${DateTime.now().year} WealthWise Finance',
+      children: [
+        const SizedBox(height: 24),
+        const Text(
+          'WealthWise is a comprehensive finance tracking application designed to help you manage your expenses, income, and savings with smart insights and beautiful visualizations.',
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'This app allows you to categorize expenses, set budgets, track financial goals, and get personalized recommendations to improve your financial health.',
+        ),
+        const SizedBox(height: 24),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionChip(
+              avatar: const Icon(Icons.star, size: 16),
+              label: const Text('Rate App'),
+              onPressed: () => _launchUrl(
+                  'https://play.google.com/store/apps/details?id=com.example.wealthwise'),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.share, size: 16),
+              label: const Text('Share'),
+              onPressed: () {
+                // Share app functionality would go here
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Share functionality coming soon!'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final subscriptionProvider = Provider.of<SubscriptionProvider>(context);
+    final currencyProvider = Provider.of<CurrencyProvider>(context);
+    final notificationProvider = Provider.of<NotificationProvider>(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -90,7 +443,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             title: const Text('Profile'),
-            subtitle: Text(authProvider.user?.displayName ?? 'User'),
+            subtitle: Text(authProvider.user?.displayName ??
+                authProvider.user?.email ??
+                'User'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.push(
@@ -180,19 +535,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             title: const Text('Currency'),
-            subtitle: const Text('USD'),
+            subtitle: Text(
+                '${currencyProvider.currencySymbol} (${currencyProvider.currencyCode})'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // Currency selection dialog
-              showDialog(
-                context: context,
-                builder: (context) => const AlertDialog(
-                  title: Text('Currency'),
-                  content: Text(
-                      'Currency selection will be available in a future update'),
-                ),
-              );
-            },
+            onTap: () => _openCurrencySelector(currencyProvider),
           ),
 
           // Preferences section header
@@ -240,20 +586,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             title: const Text('Notifications'),
-            subtitle: const Text('Coming soon'),
+            subtitle: Text(notificationProvider.notificationsEnabled
+                ? 'Enabled'
+                : 'Disabled'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                      'Notifications will be available in a future update'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
+            onTap: () => _openNotificationSettings(notificationProvider),
           ),
-
-          const Divider(indent: 72, endIndent: 0),
 
           // About and Help section header
           Padding(
@@ -278,16 +616,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             title: const Text('Help & Support'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (context) => const AlertDialog(
-                  title: Text('Help & Support'),
-                  content: Text(
-                      'Support options will be available in a future update'),
-                ),
-              );
-            },
+            onTap: _showHelpAndSupport,
           ),
 
           const Divider(indent: 72, endIndent: 0),
@@ -303,24 +632,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             title: const Text('About'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              showAboutDialog(
-                context: context,
-                applicationName: 'WealthWise',
-                applicationVersion: '1.0.0',
-                applicationIcon: Icon(
-                  Icons.account_balance_wallet,
-                  color: colorScheme.primary,
-                  size: 48,
-                ),
-                applicationLegalese: '© 2023 WealthWise',
-                children: [
-                  const SizedBox(height: 16),
-                  const Text(
-                      'A finance tracking application that helps you manage your expenses, income, and savings.'),
-                ],
-              );
-            },
+            onTap: _showAboutApp,
           ),
         ],
       ),

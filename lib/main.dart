@@ -22,6 +22,8 @@ import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:wealth_wise/providers/expense_provider.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
+import 'package:wealth_wise/providers/currency_provider.dart';
+import 'package:wealth_wise/providers/notification_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -246,15 +248,21 @@ class _MyAppState extends State<MyApp> {
 
         // 7. Theme provider
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+
+        // 8. Currency provider
+        ChangeNotifierProvider(create: (_) => CurrencyProvider()),
+
+        // 9. Notification provider
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
-      child: Consumer<AuthProvider>(
-        builder: (context, authProvider, _) {
+      child: Consumer2<AuthProvider, ThemeProvider>(
+        builder: (context, authProvider, themeProvider, _) {
           if (authProvider.isLoading) {
             return MaterialApp(
               debugShowCheckedModeBanner: false,
               theme: AppTheme.lightTheme(),
               darkTheme: AppTheme.darkTheme(),
-              themeMode: ThemeMode.system,
+              themeMode: themeProvider.themeMode,
               home: Scaffold(
                 body: Center(
                   child: Column(
@@ -302,7 +310,7 @@ class _MyAppState extends State<MyApp> {
             title: 'WealthWise',
             theme: AppTheme.lightTheme(),
             darkTheme: AppTheme.darkTheme(),
-            themeMode: ThemeMode.system,
+            themeMode: themeProvider.themeMode,
             debugShowCheckedModeBanner: false,
             navigatorObservers: [_navigatorObserver],
             localizationsDelegates: const [

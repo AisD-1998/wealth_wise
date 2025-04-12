@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/services/billing_service.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:intl/intl.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -14,53 +12,30 @@ class SubscriptionScreen extends StatefulWidget {
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   int _selectedPlanIndex = 0;
+  bool _initializing = true;
 
-  final List<Map<String, dynamic>> _plans = [
-    {
-      'name': 'Free',
-      'price': 0.0,
-      'period': 'forever',
-      'features': [
-        'Up to 50 transactions per month',
-        'Basic expense categories',
-        'Simple reports and charts',
-        'Single savings goal',
-        'Ad-supported',
-      ],
-      'color': Colors.grey,
-      'button': 'Current Plan',
-    },
-    {
-      'name': 'Premium',
-      'price': 4.99,
-      'period': 'month',
-      'features': [
-        'Unlimited transactions',
-        'Custom categories',
-        'Advanced financial reports',
-        'Multiple savings goals',
-        'Ad-free experience',
-        'Cloud backup',
-        '24/7 Priority support',
-      ],
-      'color': Colors.blue,
-      'button': 'Upgrade Now',
-    },
-    {
-      'name': 'Premium Annual',
-      'price': 39.99,
-      'period': 'year',
-      'features': [
-        'All Premium features',
-        'Save 33% vs monthly plan',
-        'Financial planning tools',
-        'Premium budgeting tools',
-        'Export data in multiple formats',
-      ],
-      'color': Colors.indigo,
-      'button': 'Best Value',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _initializeSubscription();
+  }
+
+  Future<void> _initializeSubscription() async {
+    if (!mounted) return;
+
+    setState(() {
+      _initializing = true;
+    });
+
+    final billingService = Provider.of<BillingService>(context, listen: false);
+    await billingService.initialize();
+
+    if (mounted) {
+      setState(() {
+        _initializing = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,9 +45,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         title: const Text('Subscription Management'),
         backgroundColor: theme.colorScheme.surface,
       ),
-      body: Consumer<SubscriptionProvider>(
-        builder: (context, subscriptionProvider, _) {
-          if (subscriptionProvider.isLoading) {
+      body: Consumer<BillingService>(
+        builder: (context, billingService, _) {
+          if (_initializing || billingService.isLoading) {
             return const Center(
               child: CircularProgressIndicator(),
             );
@@ -81,416 +56,181 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           return ListView(
             padding: const EdgeInsets.all(16.0),
             children: [
-              // Debug info section
-              Container(
-                padding: const EdgeInsets.all(16),
+              // Subscription status card
+              Card(
+                elevation: 2,
                 margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                  color: Colors.grey.shade50,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Debug Info:',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Text('isSubscribed: ${subscriptionProvider.isSubscribed}'),
-                    Text(
-                        'End date: ${subscriptionProvider.subscriptionEndDate?.toString() ?? 'N/A'}'),
-                    Text(
-                        'Products loaded: ${Provider.of<BillingService>(context, listen: false).products.length}'),
-                    const SizedBox(height: 8),
-                    const Text(
-                        'Note: Currently in test mode, purchases are simulated',
-                        style: TextStyle(
-                            fontStyle: FontStyle.italic, fontSize: 12)),
-                  ],
-                ),
-              ),
-
-              // Current subscription status
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(
-                  color: subscriptionProvider.isSubscribed
-                      ? theme.colorScheme.primaryContainer
-                      : theme.colorScheme.surfaceContainerHighest,
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Current Plan',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: subscriptionProvider.isSubscribed
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      subscriptionProvider.isSubscribed ? 'Premium' : 'Free',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: subscriptionProvider.isSubscribed
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    if (subscriptionProvider.isSubscribed &&
-                        subscriptionProvider.subscriptionEndDate != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(
-                          'Valid until ${DateFormat.yMMMMd().format(subscriptionProvider.subscriptionEndDate!)}',
-                          style: TextStyle(
-                            color: theme.colorScheme.onPrimaryContainer
-                                .withValues(alpha: 0.8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            billingService.isSubscribed
+                                ? Icons.verified
+                                : Icons.info_outline,
+                            color: billingService.isSubscribed
+                                ? Colors.green
+                                : Colors.orange,
+                            size: 24,
                           ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Plans section
-              Text(
-                'Available Plans',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Plan cards
-              ...List.generate(_plans.length, (index) {
-                final plan = _plans[index];
-                final bool isCurrentPlan =
-                    (index == 0 && !subscriptionProvider.isSubscribed) ||
-                        (index > 0 && subscriptionProvider.isSubscribed);
-
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedPlanIndex = index;
-                    });
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: _selectedPlanIndex == index
-                            ? plan['color']
-                            : Colors.grey.shade300,
-                        width: _selectedPlanIndex == index ? 2 : 1,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Plan header
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: plan['color'].withValues(alpha: 0.1),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(11),
-                              topRight: Radius.circular(11),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Current Plan',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    plan['name'],
-                                    style:
-                                        theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: plan['color'],
-                                    ),
-                                  ),
-                                  if (plan['price'] > 0)
-                                    Text(
-                                      '\$${plan['price']}/${plan['period']}',
-                                      style:
-                                          theme.textTheme.titleSmall?.copyWith(
-                                        color: plan['color'],
-                                      ),
-                                    ),
-                                  if (plan['price'] == 0)
-                                    Text(
-                                      'Free ${plan['period']}',
-                                      style:
-                                          theme.textTheme.titleSmall?.copyWith(
-                                        color: plan['color'],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const Spacer(),
-                              Radio(
-                                value: index,
-                                groupValue: _selectedPlanIndex,
-                                activeColor: plan['color'],
-                                onChanged: (value) {
-                                  setState(() {
-                                    _selectedPlanIndex = value!;
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        billingService.isSubscribed ? 'Premium' : 'Free',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: billingService.isSubscribed
+                              ? Colors.green
+                              : Colors.grey[700],
                         ),
-
-                        // Plan features
+                      ),
+                      if (billingService.isSubscribed &&
+                          billingService.subscriptionEndDate != null)
                         Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Features:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              ...List.generate(
-                                plan['features'].length,
-                                (i) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle_outline,
-                                        color: plan['color'],
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(plan['features'][i]),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        if (index == _selectedPlanIndex)
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: ElevatedButton(
-                              onPressed: isCurrentPlan
-                                  ? null
-                                  : () => _processPurchase(context, index),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: plan['color'],
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor:
-                                    plan['color'].withValues(alpha: 0.3),
-                              ),
-                              child: Text(
-                                isCurrentPlan ? 'Current Plan' : plan['button'],
-                              ),
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            'Valid until: ${_formatDate(billingService.subscriptionEndDate!)}',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-
-              const SizedBox(height: 16),
-
-              // Billing history
-              if (subscriptionProvider.isSubscribed)
-                Card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          'Billing History',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
                         ),
-                      ),
-                      const Divider(height: 1),
-                      // In a real app, this would fetch real billing history
-                      // For now, just showing a placeholder
-                      ListTile(
-                        title: const Text('Premium Subscription'),
-                        subtitle: const Text('Payment successful'),
-                        trailing: Text(
-                          '\$4.99',
+                      const SizedBox(height: 16),
+                      if (billingService.isSubscribed)
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.cancel_outlined,
+                              color: Colors.red),
+                          label: const Text('Cancel Subscription'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          onPressed: () => _showCancelDialog(context),
+                        )
+                      else
+                        Text(
+                          'Upgrade to Premium for unlimited access and enhanced features.',
                           style: TextStyle(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[600],
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Invoice downloaded'),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.download),
-                          label: const Text('Download Invoices'),
-                        ),
-                      ),
                     ],
                   ),
                 ),
-
-              const SizedBox(height: 16),
-
-              // Payment information
-              if (subscriptionProvider.isSubscribed)
-                Card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          'Subscription Details',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      // Show Google Play subscription details instead of credit card
-                      ListTile(
-                        leading: const Icon(Icons.subscriptions),
-                        title: const Text('Google Play Subscription'),
-                        subtitle: const Text('Managed through Google Play'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.open_in_new),
-                          onPressed: () {
-                            // Direct users to manage subscriptions in Google Play
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                    'Open Google Play Store to manage your subscription'),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 32),
-
-              // Plan comparison
-              Text(
-                'Plan Comparison',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
               ),
 
-              const SizedBox(height: 16),
-
-              // Plan comparison table
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 20,
-                  columns: const [
-                    DataColumn(label: Text('Feature')),
-                    DataColumn(label: Text('Free')),
-                    DataColumn(label: Text('Premium')),
-                  ],
-                  rows: [
-                    const DataRow(cells: [
-                      DataCell(Text('Transactions')),
-                      DataCell(Text('50/month')),
-                      DataCell(Text('Unlimited')),
-                    ]),
-                    const DataRow(cells: [
-                      DataCell(Text('Categories')),
-                      DataCell(Text('Basic')),
-                      DataCell(Text('Custom')),
-                    ]),
-                    const DataRow(cells: [
-                      DataCell(Text('Reports')),
-                      DataCell(Text('Basic')),
-                      DataCell(Text('Advanced')),
-                    ]),
-                    const DataRow(cells: [
-                      DataCell(Text('Savings Goals')),
-                      DataCell(Text('1')),
-                      DataCell(Text('Unlimited')),
-                    ]),
-                    const DataRow(cells: [
-                      DataCell(Text('Ads')),
-                      DataCell(Text('Yes')),
-                      DataCell(Text('No')),
-                    ]),
-                    const DataRow(cells: [
-                      DataCell(Text('Support')),
-                      DataCell(Text('Email')),
-                      DataCell(Text('Priority')),
-                    ]),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              // Legal information
-              Text(
-                'Legal Information',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Text(
-                'Subscriptions will be charged to your Google Play account at confirmation of purchase. Subscriptions automatically renew unless auto-renew is turned off at least 24 hours before the end of the current period. You can manage your subscriptions in your Google Play account settings after purchase.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
-
-              if (subscriptionProvider.isSubscribed)
+              // Subscription options section (only shown if not subscribed)
+              if (!billingService.isSubscribed) ...[
                 Padding(
-                  padding: const EdgeInsets.only(top: 24.0),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () => _showCancelDialog(context),
-                      child: const Text('Cancel Subscription'),
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: Text(
+                    'Choose a Plan',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
+
+                // Plan selection cards
+                _buildPlanSelectionCard(
+                  context,
+                  0,
+                  'Free',
+                  '0.00',
+                  'Limited features',
+                  [
+                    'Up to 50 transactions per month',
+                    'Basic expense categories',
+                    'Simple reports and charts',
+                    'Single savings goal',
+                    'Ad-supported',
+                  ],
+                  Colors.grey,
+                  billingService.isSubscribed,
+                ),
+
+                const SizedBox(height: 16),
+
+                _buildPlanSelectionCard(
+                  context,
+                  1,
+                  'Monthly Premium',
+                  _getProductPrice(billingService.products, 'monthly'),
+                  'Full access billed monthly',
+                  [
+                    'Unlimited transactions',
+                    'Custom categories',
+                    'Advanced financial reports',
+                    'Multiple savings goals',
+                    'Ad-free experience',
+                    'Cloud backup',
+                    'Priority support',
+                  ],
+                  Colors.blue,
+                  billingService.isSubscribed,
+                ),
+
+                const SizedBox(height: 16),
+
+                _buildPlanSelectionCard(
+                  context,
+                  2,
+                  'Annual Premium',
+                  _getProductPrice(billingService.products, 'annual'),
+                  'Save 58% compared to monthly',
+                  [
+                    'All Monthly Premium features',
+                    'Best value option',
+                    'Financial planning tools',
+                    'Export data in multiple formats',
+                    'Premium budgeting tools',
+                  ],
+                  Colors.indigo,
+                  billingService.isSubscribed,
+                ),
+
+                const SizedBox(height: 24),
+
+                // Subscribe button
+                ElevatedButton(
+                  onPressed: _selectedPlanIndex == 0
+                      ? null
+                      : () =>
+                          _handleSubscriptionPurchase(context, billingService),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    _selectedPlanIndex == 0
+                        ? 'Current Plan'
+                        : 'Subscribe to ${_selectedPlanIndex == 1 ? "Monthly" : "Annual"} Premium',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ],
           );
         },
@@ -498,107 +238,180 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  void _processPurchase(BuildContext context, int planIndex) {
-    final billingService = Provider.of<BillingService>(context, listen: false);
+  Widget _buildPlanSelectionCard(
+    BuildContext context,
+    int planIndex,
+    String planName,
+    String price,
+    String description,
+    List<String> features,
+    Color accentColor,
+    bool isCurrentlySubscribed,
+  ) {
+    final theme = Theme.of(context);
+    final isCurrentPlan = isCurrentlySubscribed && planIndex > 0 ||
+        planIndex == 0 && !isCurrentlySubscribed;
 
-    // Show dialog to confirm purchase
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Purchase ${_plans[planIndex]['name']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-                'You are about to subscribe to our ${_plans[planIndex]['name']} plan.'),
-            const SizedBox(height: 8),
-            Text(
-              'Price: \$${_plans[planIndex]['price']}/${_plans[planIndex]['period']}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'In production, this would initiate a real Google Play purchase.',
-              style: TextStyle(fontStyle: FontStyle.italic),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-
-              // Show loading indicator
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Initiating purchase...')),
-              );
-
-              // Capture scaffold messenger before async gap
-              final scaffoldMessenger = ScaffoldMessenger.of(context);
-
-              // Use the appropriate product based on selected plan
-              if (billingService.products.isNotEmpty) {
-                late ProductDetails product;
-
-                // Select the correct product based on plan index
-                if (planIndex == 1) {
-                  // Monthly
-                  product = billingService.products.firstWhere(
-                      (p) => p.id.contains('monthly'),
-                      orElse: () => billingService.products.first);
-                } else if (planIndex == 2) {
-                  // Annual
-                  product = billingService.products.firstWhere(
-                      (p) => p.id.contains('annual'),
-                      orElse: () => billingService.products.last);
-                } else {
-                  // Free plan - no purchase needed
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('You are now on the free plan')),
-                  );
-                  return;
-                }
-
-                // Start the purchase process with test mode enabled
-                billingService
-                    .buySubscription(product, testMode: true)
-                    .then((_) {
-                  // Show success message after purchase completes
-                  if (mounted) {
-                    scaffoldMessenger.showSnackBar(
-                      const SnackBar(
-                          content:
-                              Text('Subscription activated successfully!')),
-                    );
-                  }
-                });
-              } else {
-                // Fallback for when products aren't available
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Subscription products not available')),
-                );
-              }
+    return GestureDetector(
+      onTap: isCurrentlySubscribed
+          ? null
+          : () {
+              setState(() {
+                _selectedPlanIndex = planIndex;
+              });
             },
-            child: const Text('Subscribe'),
+      child: Card(
+        elevation: _selectedPlanIndex == planIndex ? 4 : 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: _selectedPlanIndex == planIndex
+                ? accentColor
+                : Colors.transparent,
+            width: 2,
           ),
-        ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    planName,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: accentColor,
+                    ),
+                  ),
+                  if (isCurrentPlan)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(
+                          alpha: (accentColor.a * 0.2).toDouble(),
+                          red: accentColor.r.toDouble(),
+                          green: accentColor.g.toDouble(),
+                          blue: accentColor.b.toDouble(),
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: accentColor),
+                      ),
+                      child: Text(
+                        'Current Plan',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: accentColor,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    price,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  if (planIndex > 0)
+                    Text(
+                      planIndex == 1 ? '/ month' : '/ year',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...features.map((feature) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          color: accentColor,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            feature,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
+          ),
+        ),
       ),
     );
   }
 
+  String _getProductPrice(List<ProductDetails> products, String type) {
+    if (products.isEmpty) {
+      return type == 'monthly' ? '3.99' : '19.99';
+    }
+
+    final product = products.firstWhere(
+      (p) => p.id.contains(type),
+      orElse: () => type == 'monthly'
+          ? ProductDetails(
+              id: 'wealthwise_monthly',
+              title: 'Monthly Premium',
+              description: 'Unlimited access for one month',
+              price: '3.99',
+              rawPrice: 3.99,
+              currencyCode: 'USD',
+            )
+          : ProductDetails(
+              id: 'wealthwise_annual',
+              title: 'Annual Premium',
+              description: 'Unlimited access for one year (58% discount)',
+              price: '19.99',
+              rawPrice: 19.99,
+              currencyCode: 'USD',
+            ),
+    );
+
+    return product.price;
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
   void _showCancelDialog(BuildContext context) {
     final billingService = Provider.of<BillingService>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Cancel Subscription'),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
@@ -614,33 +427,101 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Keep Subscription'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Colors.red,
             ),
-            onPressed: () {
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(dialogContext);
 
-              // Capture scaffold messenger before async operation
-              final scaffoldMessenger = ScaffoldMessenger.of(context);
+              // Cancel the subscription
+              final success = await billingService.cancelSubscription();
 
-              billingService.cancelSubscription().then((_) {
-                if (mounted) {
+              // Show result message
+              if (mounted) {
+                if (success) {
                   scaffoldMessenger.showSnackBar(
                     const SnackBar(
                       content: Text('Your subscription has been cancelled'),
                     ),
                   );
+                } else {
+                  scaffoldMessenger.showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                          'Failed to cancel subscription. Please try again later.'),
+                    ),
+                  );
                 }
-              });
+              }
             },
             child: const Text('Cancel Subscription'),
           ),
         ],
       ),
     );
+  }
+
+  void _handleSubscriptionPurchase(
+      BuildContext context, BillingService billingService) async {
+    // Capture all context-dependent values before async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // Show loading indicator
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(content: Text('Processing your subscription...')),
+    );
+
+    // Get the appropriate product based on selection
+    final products = billingService.products;
+    if (products.isEmpty) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Subscription products not available')),
+        );
+      }
+      return;
+    }
+
+    ProductDetails selectedProduct;
+
+    // Select the product based on index
+    if (_selectedPlanIndex == 2) {
+      // Annual
+      selectedProduct = products.firstWhere(
+        (p) => p.id.contains('annual'),
+        orElse: () => products[0],
+      );
+    } else {
+      // Monthly (default)
+      selectedProduct = products.firstWhere(
+        (p) => p.id.contains('monthly'),
+        orElse: () => products[0],
+      );
+    }
+
+    // Initiate purchase
+    final success = await billingService.purchaseSubscription(selectedProduct);
+
+    if (mounted) {
+      if (success) {
+        // Show success message (purchase will be completed via the purchase stream listener)
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Purchase initiated. Please follow the payment prompts.')),
+        );
+      } else {
+        // Show error message
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Failed to process your subscription. Please try again later.')),
+        );
+      }
+    }
   }
 }

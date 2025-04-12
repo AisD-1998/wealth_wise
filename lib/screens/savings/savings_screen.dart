@@ -4,6 +4,7 @@ import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/screens/savings/create_saving_goal_screen.dart';
 import 'package:wealth_wise/widgets/custom_action_button.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class SavingsScreen extends StatelessWidget {
   const SavingsScreen({super.key});
@@ -46,7 +47,8 @@ class SavingsScreen extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '\$${_calculateTotalSavings(savingGoals).toStringAsFixed(2)}',
+                          CurrencyFormatter.formatWithContext(
+                              context, _calculateTotalSavings(savingGoals)),
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: theme.colorScheme.primary,
@@ -54,7 +56,7 @@ class SavingsScreen extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'of \$${_calculateTotalGoals(savingGoals).toStringAsFixed(2)}',
+                          'of ${CurrencyFormatter.formatWithContext(context, _calculateTotalGoals(savingGoals))}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurface.withAlpha(153),
                           ),
@@ -271,13 +273,15 @@ class SavingsScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '\$${goal.currentAmount.toStringAsFixed(2)}',
+                  CurrencyFormatter.formatWithContext(
+                      context, goal.currentAmount),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Text(
-                  '\$${goal.targetAmount.toStringAsFixed(2)}',
+                  CurrencyFormatter.formatWithContext(
+                      context, goal.targetAmount),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 153),
                   ),
@@ -326,7 +330,7 @@ class SavingsScreen extends StatelessWidget {
                               ),
                             )
                           : Text(
-                              '\$${remainingAmount.toStringAsFixed(2)} remaining',
+                              '${CurrencyFormatter.formatWithContext(context, remainingAmount)} remaining',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurface
                                     .withValues(alpha: 153),

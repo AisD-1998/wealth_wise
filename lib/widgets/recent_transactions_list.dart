@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:wealth_wise/models/transaction.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class RecentTransactionsList extends StatelessWidget {
   final List<Transaction> transactions;
@@ -162,7 +163,7 @@ class RecentTransactionsList extends StatelessWidget {
         ],
       ),
       trailing: Text(
-        '${isIncome ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
+        '${isIncome ? '+' : '-'}${CurrencyFormatter.formatWithContext(context, transaction.amount)}',
         style: theme.textTheme.titleMedium?.copyWith(
           color: amountColor,
           fontWeight: FontWeight.bold,

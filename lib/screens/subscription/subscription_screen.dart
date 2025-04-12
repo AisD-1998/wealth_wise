@@ -16,9 +16,9 @@ class SubscriptionScreen extends StatefulWidget {
 }
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
-  final bool showCloseButton = true;
   bool _initializing = true;
   static const Duration _loadingTimeout = Duration(seconds: 8);
+  int _selectedPlanIndex = 1; // Default to monthly (index 1)
 
   @override
   void initState() {
@@ -61,99 +61,88 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('WealthWise Premium'),
-        centerTitle: true,
-        backgroundColor: AppTheme.primaryGreen,
-        elevation: 0,
-        actions: showCloseButton
-            ? [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ]
-            : null,
-      ),
-      body: Consumer<SubscriptionProvider>(
-        builder: (context, provider, _) {
-          // Show loading only during first initialization
-          if (_initializing || provider.isLoading) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const LoadingIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Loading subscription options...',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          // Handle errors or no products available
-          if (provider.errorMessage != null || provider.products.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Consumer<SubscriptionProvider>(
+          builder: (context, provider, _) {
+            // Show loading only during first initialization
+            if (_initializing || provider.isLoading) {
+              return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.error_outline,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+                    const LoadingIndicator(),
                     const SizedBox(height: 16),
                     Text(
-                      provider.errorMessage ??
-                          'Failed to load subscription options',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: _initializeSubscription,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryGreen,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
+                      'Loading subscription options...',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 16,
                       ),
-                      child: const Text('Retry'),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () {
-                        if (widget.onSkip != null) {
-                          widget.onSkip!();
-                        } else {
-                          Navigator.of(context).pop();
-                        }
-                      },
-                      child: const Text('Skip for now'),
                     ),
                   ],
                 ),
-              ),
-            );
-          }
+              );
+            }
 
-          if (provider.isSubscribed) {
-            return _buildActiveSubscription(context, provider);
-          }
+            // Handle errors or no products available
+            if (provider.errorMessage != null || provider.products.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        provider.errorMessage ??
+                            'Failed to load subscription options',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _initializeSubscription,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryGreen,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 32, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: const Text('Retry'),
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: () {
+                          if (widget.onSkip != null) {
+                            widget.onSkip!();
+                          } else {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        child: const Text('Skip for now'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
 
-          return _buildSubscriptionOffers(context, provider);
-        },
+            if (provider.isSubscribed) {
+              return _buildActiveSubscription(context, provider);
+            }
+
+            return _buildSubscriptionOffers(context, provider);
+          },
+        ),
       ),
       bottomNavigationBar: Consumer<SubscriptionProvider>(
         builder: (context, provider, _) {
@@ -167,7 +156,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
+                    color: Colors.black.withValues(alpha: 13),
                     blurRadius: 10,
                     offset: const Offset(0, -5),
                   ),
@@ -176,37 +165,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Debug info
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                      color: Colors.grey.shade50,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Debug Info:',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text('isSubscribed: ${provider.isSubscribed}',
-                            style: const TextStyle(fontSize: 12)),
-                        Text(
-                            'End date: ${provider.subscriptionEndDate?.toString() ?? 'N/A'}',
-                            style: const TextStyle(fontSize: 12)),
-                        Text(
-                            'Products: ${Provider.of<BillingService>(context, listen: false).products.length}',
-                            style: const TextStyle(fontSize: 12)),
-                        const Text(
-                            'Test mode enabled - purchases are simulated',
-                            style: TextStyle(
-                                fontSize: 11, fontStyle: FontStyle.italic)),
-                      ],
-                    ),
-                  ),
+                  // Skip button
                   TextButton(
                     onPressed: () {
                       if (widget.onSkip != null) {
@@ -246,7 +205,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.primaryGreen.withValues(alpha: 0.1),
+                color: AppTheme.primaryGreen.withValues(alpha: 26),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(
@@ -289,12 +248,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               label: const Text('Continue Enjoying Premium'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryGreen,
+                foregroundColor: Colors.white,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+              label: const Text(
+                'Cancel Subscription',
+                style: TextStyle(color: Colors.red),
+              ),
+              onPressed: () => _showCancelDialog(context),
             ),
           ],
         ),
@@ -304,128 +273,347 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildSubscriptionOffers(
       BuildContext context, SubscriptionProvider provider) {
-    // Get the billing service from provider tree
-    final billingService = Provider.of<BillingService>(context, listen: false);
+    // Use the products from subscription provider
+    final products = provider.products;
 
-    // Get the actual product details from the billing service
-    final products = billingService.products;
-    final hasRealProducts = products.isNotEmpty;
+    // Ensure we have at least 2 products
+    if (products.length < 2) {
+      return Center(
+        child: Text(
+          'Subscription products not available',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+      );
+    }
 
-    return Column(
+    // Find the monthly and annual products
+    final monthlyProduct = products.firstWhere(
+      (p) => p.id.contains('monthly'),
+      orElse: () => products[0],
+    );
+
+    final annualProduct = products.firstWhere(
+      (p) => p.id.contains('annual'),
+      orElse: () => products.length > 1 ? products[1] : products[0],
+    );
+
+    return Stack(
       children: [
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 40),
-                Icon(
+        // Close button positioned at top right
+        Positioned(
+          top: 16,
+          right: 16,
+          child: InkWell(
+            onTap: () {
+              if (widget.onSkip != null) {
+                widget.onSkip!();
+              } else {
+                Navigator.of(context).pop();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 40),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: Colors.black54, size: 24),
+            ),
+          ),
+        ),
+
+        // Main content
+        SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(height: 50),
+
+              // Premium logo and branding
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppTheme.primaryGreen,
+                        AppTheme.accentMint,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                          color: AppTheme.primaryGreen.withValues(alpha: 50),
+                          blurRadius: 20,
+                          spreadRadius: 1,
+                          offset: const Offset(0, 10))
+                    ]),
+                child: const Icon(
                   Icons.workspace_premium,
-                  size: 80,
-                  color: AppTheme.primaryGreen,
+                  size: 70,
+                  color: Colors.white,
                 ),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Text(
-                    'Upgrade to Premium',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.primaryGreen,
+              ),
+
+              const SizedBox(height: 30),
+
+              // Premium heading
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                child: Text(
+                  'Unlock WealthWise Premium',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Premium description
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                child: Text(
+                  'Take control of your finances with unlimited features and no ads',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.black54,
+                        height: 1.4,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+              const SizedBox(height: 40),
+
+              // Compare plans section
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Compare Plans',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Subscription plan selector
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                          width: 1,
                         ),
-                    textAlign: TextAlign.center,
+                        color: Colors.white,
+                      ),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          children: [
+                            // Monthly option
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPlanIndex = 1;
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: _selectedPlanIndex == 1
+                                        ? AppTheme.primaryGreen
+                                            .withValues(alpha: 26)
+                                        : Colors.transparent,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(15),
+                                      bottomLeft: Radius.circular(15),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'Monthly',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: _selectedPlanIndex == 1
+                                              ? AppTheme.primaryGreen
+                                              : Colors.grey.shade700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        monthlyProduct.price,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 18,
+                                          color: _selectedPlanIndex == 1
+                                              ? AppTheme.primaryGreen
+                                              : Colors.grey.shade700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'per month',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Divider
+                            Container(
+                              width: 1,
+                              color: Colors.grey.shade300,
+                            ),
+                            // Annual option
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedPlanIndex = 2;
+                                  });
+                                },
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: _selectedPlanIndex == 2
+                                            ? AppTheme.primaryGreen
+                                                .withValues(alpha: 26)
+                                            : Colors.transparent,
+                                        borderRadius: const BorderRadius.only(
+                                          topRight: Radius.circular(15),
+                                          bottomRight: Radius.circular(15),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            'Annual',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: _selectedPlanIndex == 2
+                                                  ? AppTheme.primaryGreen
+                                                  : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            annualProduct.price,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 18,
+                                              color: _selectedPlanIndex == 2
+                                                  ? AppTheme.primaryGreen
+                                                  : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'per year',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 0,
+                                      right: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.shade600,
+                                          borderRadius: const BorderRadius.only(
+                                            bottomLeft: Radius.circular(8),
+                                            topRight: Radius.circular(15),
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'SAVE 58%',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              // Subscribe button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: ElevatedButton(
+                  onPressed: () => _handleSubscriptionPurchase(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryGreen,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 54),
+                    elevation: 3,
+                    shadowColor: AppTheme.primaryGreen.withValues(alpha: 100),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Text(
+                    'Subscribe ${_selectedPlanIndex == 1 ? "Monthly" : "Annually"}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Text(
-                    'Get unlimited access to all premium features',
-                    style: Theme.of(context).textTheme.titleMedium,
-                    textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 30),
+
+              // Features section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ),
-                const SizedBox(height: 40),
-
-                // Monthly subscription
-                _buildSubscriptionCard(
-                  context,
-                  hasRealProducts
-                      ? products.firstWhere(
-                          (p) => p.id.contains('monthly'),
-                          orElse: () => ProductDetails(
-                            id: 'wealthwise_monthly_premium',
-                            title: 'Monthly Premium',
-                            description: 'Unlimited access for one month',
-                            price: '\$4.99',
-                            rawPrice: 4.99,
-                            currencyCode: 'USD',
-                          ),
-                        )
-                      : ProductDetails(
-                          id: 'wealthwise_monthly_premium',
-                          title: 'Monthly Premium',
-                          description: 'Unlimited access for one month',
-                          price: '\$4.99',
-                          rawPrice: 4.99,
-                          currencyCode: 'USD',
-                        ),
-                  [
-                    'Unlimited transactions',
-                    'Custom categories',
-                    'Advanced reports',
-                    'Multiple savings goals',
-                    'Ad-free experience',
-                    'Cloud backup',
-                    'Priority support',
-                  ],
-                  'Most Popular',
-                  Colors.blue,
-                ),
-
-                const SizedBox(height: 20),
-
-                // Annual subscription
-                _buildSubscriptionCard(
-                  context,
-                  hasRealProducts
-                      ? products.firstWhere(
-                          (p) => p.id.contains('annual'),
-                          orElse: () => ProductDetails(
-                            id: 'wealthwise_annual_premium',
-                            title: 'Annual Premium',
-                            description:
-                                'Unlimited access for one year (58% discount)',
-                            price: '\$29.99',
-                            rawPrice: 29.99,
-                            currencyCode: 'USD',
-                          ),
-                        )
-                      : ProductDetails(
-                          id: 'wealthwise_annual_premium',
-                          title: 'Annual Premium',
-                          description:
-                              'Unlimited access for one year (58% discount)',
-                          price: '\$29.99',
-                          rawPrice: 29.99,
-                          currencyCode: 'USD',
-                        ),
-                  [
-                    'All Monthly Premium features',
-                    'Save over 50% vs monthly plan',
-                    'Financial planning tools',
-                    'Premium budgeting tools',
-                    'Export data in multiple formats',
-                  ],
-                  'Best Value',
-                  Colors.indigo,
-                ),
-
-                const SizedBox(height: 40),
-
-                // Features section
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -433,6 +621,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         'Premium Features',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.bold,
+                              color: Colors.black87,
                             ),
                       ),
                       const SizedBox(height: 16),
@@ -447,192 +636,160 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ],
                   ),
                 ),
+              ),
 
-                const SizedBox(height: 40),
+              const SizedBox(height: 20),
 
-                // Legal information
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24.0,
-                    vertical: 8.0,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Legal Information',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Payment will be charged to your Google Play account at confirmation of purchase. '
-                        'Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. '
-                        'Manage your subscriptions in Google Play Store settings.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
+              // Legal information
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 8.0,
+                ),
+                child: Text(
+                  'Payment will be charged to your account at confirmation of purchase. '
+                  'Subscription automatically renews unless auto-renew is turned off at least 24 hours before the end of the current period. '
+                  'Manage your subscriptions in App Store settings.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                    height: 1.5,
                   ),
                 ),
-              ],
-            ),
+              ),
+
+              const SizedBox(height: 20),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSubscriptionCard(BuildContext context, ProductDetails product,
-      List<String> features, String highlight, Color color) {
+  void _handleSubscriptionPurchase(BuildContext context) async {
+    // Capture all context-dependent values before async operations
     final billingService = Provider.of<BillingService>(context, listen: false);
+    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 24.0),
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header with price
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-              ),
+    // Show loading indicator
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(content: Text('Processing your subscription...')),
+    );
+
+    // Get the appropriate product based on selection
+    final products = provider.products;
+    if (products.isEmpty) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Subscription products not available')),
+        );
+      }
+      return;
+    }
+
+    ProductDetails selectedProduct;
+
+    // Select the product based on index
+    if (_selectedPlanIndex == 2) {
+      // Annual
+      selectedProduct = products.firstWhere(
+        (p) => p.id.contains('annual'),
+        orElse: () => products[0],
+      );
+    } else {
+      // Monthly (default)
+      selectedProduct = products.firstWhere(
+        (p) => p.id.contains('monthly'),
+        orElse: () => products[0],
+      );
+    }
+
+    // Initiate purchase
+    final success = await billingService.purchaseSubscription(selectedProduct);
+
+    if (success) {
+      // Subscription was successful (using our mock implementation in dev mode)
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Subscription activated successfully!')),
+        );
+
+        // Close this screen after a short delay
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            navigator.pop();
+          }
+        });
+      }
+    } else {
+      // Show error message
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Failed to process your subscription. Please try again later.')),
+        );
+      }
+    }
+  }
+
+  void _showCancelDialog(BuildContext context) {
+    final billingService = Provider.of<BillingService>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel Subscription'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to cancel your subscription?'),
+            SizedBox(height: 16),
+            Text(
+              'You\'ll continue to have access until the end of your current billing period.',
+              style: TextStyle(fontStyle: FontStyle.italic),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      product.title,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: color,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        highlight,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  product.price,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  product.description,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Keep Subscription'),
           ),
-
-          // Features list
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ...features.map((feature) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            color: color,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(feature),
-                          ),
-                        ],
-                      ),
-                    )),
-              ],
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
             ),
-          ),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
 
-          // Subscribe button
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            child: ElevatedButton(
-              onPressed: () {
-                // Show loading indicator
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Initiating purchase...')),
-                );
+              // Cancel the subscription
+              final success = await billingService.cancelSubscription();
 
-                // Capture ScaffoldMessenger before async operation
-                final scaffoldMessenger = ScaffoldMessenger.of(context);
-
-                // Use the real Google Play Billing to purchase with test mode enabled
-                billingService
-                    .buySubscription(product, testMode: true)
-                    .then((_) {
-                  // Show success message after purchase completes
-                  if (mounted) {
-                    scaffoldMessenger.showSnackBar(
-                      const SnackBar(
-                          content:
-                              Text('Subscription activated successfully!')),
-                    );
-                  }
-                });
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: color,
-                foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: const Text(
-                'Subscribe',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
+              // Show result message
+              if (mounted) {
+                if (success) {
+                  scaffoldMessenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Your subscription has been cancelled'),
+                    ),
+                  );
+                } else {
+                  scaffoldMessenger.showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                          'Failed to cancel subscription. Please try again later.'),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Cancel Subscription'),
           ),
         ],
       ),
@@ -644,17 +801,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: AppTheme.primaryGreen,
-            size: 24,
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryGreen.withValues(alpha: 26),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              color: AppTheme.primaryGreen,
+              size: 22,
+            ),
           ),
           const SizedBox(width: 16),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],

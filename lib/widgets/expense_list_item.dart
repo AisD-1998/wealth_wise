@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:wealth_wise/models/expense.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class ExpenseListItem extends StatelessWidget {
   final Expense expense;
@@ -104,7 +105,7 @@ class ExpenseListItem extends StatelessWidget {
 
             // Amount
             Text(
-              '-\$${expense.amount.toStringAsFixed(2)}',
+              '-${CurrencyFormatter.formatWithContext(context, expense.amount)}',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: Colors.red,

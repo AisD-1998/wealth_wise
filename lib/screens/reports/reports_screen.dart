@@ -5,6 +5,7 @@ import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:math' as math;
+import 'package:wealth_wise/utils/currency_formatter.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -240,16 +241,18 @@ class _ReportsScreenState extends State<ReportsScreen>
                   _buildInsightItem(
                     context,
                     title: 'Daily Average Spending',
-                    value:
-                        '\$${financeProvider.dailyAverageSpending.toStringAsFixed(2)}',
+                    value: CurrencyFormatter.formatWithContext(
+                        context, financeProvider.dailyAverageSpending),
                     icon: Icons.calendar_today,
                   ),
                   const Divider(height: 24),
                   _buildInsightItem(
                     context,
                     title: 'Largest Single Expense',
-                    value:
-                        '\$${financeProvider.largestExpense?.amount.toStringAsFixed(2) ?? 'N/A'}',
+                    value: financeProvider.largestExpense?.amount != null
+                        ? CurrencyFormatter.formatWithContext(
+                            context, financeProvider.largestExpense!.amount)
+                        : 'N/A',
                     icon: Icons.arrow_upward,
                   ),
                 ],
@@ -343,7 +346,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                   subtitle:
                       Text(DateFormat('MMM d, yyyy').format(transaction.date)),
                   trailing: Text(
-                    '\$${transaction.amount.toStringAsFixed(2)}',
+                    CurrencyFormatter.formatWithContext(
+                        context, transaction.amount),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.green,
@@ -475,7 +479,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        '\$${category.value.toStringAsFixed(2)}',
+                        CurrencyFormatter.formatWithContext(
+                            context, category.value),
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: categoryColor,
@@ -560,7 +565,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         ),
         const Spacer(),
         Text(
-          '\$${amount.toStringAsFixed(2)}',
+          CurrencyFormatter.formatWithContext(context, amount),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: color,
@@ -676,7 +681,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                   interval: math.max(0.1, maxValue / 4),
                   getTitlesWidget: (double value, TitleMeta meta) {
                     return Text(
-                      '\$${value.toInt()}',
+                      CurrencyFormatter.formatWithContext(
+                          context, value.toInt().toDouble()),
                       style: const TextStyle(
                         color: Colors.grey,
                         fontWeight: FontWeight.bold,
@@ -750,7 +756,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                       border: Border.all(color: Colors.grey.shade200, width: 1),
                     ),
                     child: Text(
-                      '\$${totalIncome.toStringAsFixed(2)}',
+                      CurrencyFormatter.formatWithContext(context, totalIncome),
                       style: const TextStyle(
                         color: Colors.green,
                         fontWeight: FontWeight.bold,
@@ -771,7 +777,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                       border: Border.all(color: Colors.grey.shade200, width: 1),
                     ),
                     child: Text(
-                      '\$${totalExpense.toStringAsFixed(2)}',
+                      CurrencyFormatter.formatWithContext(
+                          context, totalExpense),
                       style: const TextStyle(
                         color: Colors.red,
                         fontWeight: FontWeight.bold,
@@ -913,7 +920,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                           return const SizedBox.shrink();
                         }
                         return Text(
-                          '\$${value.toInt()}',
+                          CurrencyFormatter.formatWithContext(
+                              context, value.toInt().toDouble()),
                           style: const TextStyle(
                             color: Colors.grey,
                             fontWeight: FontWeight.bold,
@@ -944,7 +952,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                             ? DateFormat('MMM d').format(sortedDates[index])
                             : '';
                         return LineTooltipItem(
-                          '$date: \$${barSpot.y.toStringAsFixed(2)}',
+                          '$date: ${CurrencyFormatter.formatWithContext(context, barSpot.y)}',
                           const TextStyle(
                             color: Colors.green,
                             fontWeight: FontWeight.bold,
