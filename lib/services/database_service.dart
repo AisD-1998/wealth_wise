@@ -32,7 +32,7 @@ class DatabaseService {
 
   // Transactions
   Future<List<app_transaction.Transaction>> getTransactions(String userId,
-      {DateTime? startDate, DateTime? endDate}) async {
+      {DateTime? startDate, DateTime? endDate, bool isPremium = false}) async {
     try {
       Query query = _transactionsCollection.where('userId', isEqualTo: userId);
 
@@ -40,13 +40,30 @@ class DatabaseService {
       if (startDate != null) {
         query = query.where('date',
             isGreaterThanOrEqualTo: Timestamp.fromDate(startDate));
+      } else if (!isPremium) {
+        // For free users, limit to last 30 days if no specific date range is provided
+        final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+        query = query.where('date',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(thirtyDaysAgo));
       }
+
       if (endDate != null) {
         query = query.where('date',
             isLessThanOrEqualTo: Timestamp.fromDate(endDate));
       }
 
       final querySnapshot = await query.get();
+
+      // For free users, limit the number of transactions returned
+      if (!isPremium && querySnapshot.docs.length > 50) {
+        _logger.info(
+            'Free user reached transaction limit. Returning only first 50 transactions.');
+        return querySnapshot.docs.take(50).map((doc) {
+          return app_transaction.Transaction.fromMap(
+              doc.data() as Map<String, dynamic>, doc.id);
+        }).toList();
+      }
+
       return querySnapshot.docs.map((doc) {
         return app_transaction.Transaction.fromMap(
             doc.data() as Map<String, dynamic>, doc.id);
@@ -58,9 +75,8 @@ class DatabaseService {
   }
 
   Future<List<app_transaction.Transaction>> getTransactionsForMonth(
-    String userId,
-    DateTime date,
-  ) async {
+      String userId, DateTime date,
+      {bool isPremium = false}) async {
     try {
       DateTime startOfMonth = DateTime(date.year, date.month, 1);
       DateTime endOfMonth = DateTime(
@@ -84,6 +100,16 @@ class DatabaseService {
           )
           .orderBy('date', descending: true)
           .get();
+
+      // For free users, limit the number of transactions returned
+      if (!isPremium && query.docs.length > 50) {
+        _logger.info(
+            'Free user reached transaction limit. Returning only first 50 transactions.');
+        return query.docs.take(50).map((doc) {
+          return app_transaction.Transaction.fromMap(
+              doc.data() as Map<String, dynamic>, doc.id);
+        }).toList();
+      }
 
       return query.docs
           .map(

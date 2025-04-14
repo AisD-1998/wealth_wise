@@ -9,6 +9,9 @@ class User {
   final double balance;
   final DateTime createdAt;
   final DateTime lastLoginAt;
+  final bool isSubscribed;
+  final String? subscriptionType; // 'monthly', 'annual', null
+  final DateTime? subscriptionEndDate;
 
   User({
     required this.uid,
@@ -19,6 +22,9 @@ class User {
     this.balance = 0.0,
     DateTime? createdAt,
     DateTime? lastLoginAt,
+    this.isSubscribed = false,
+    this.subscriptionType,
+    this.subscriptionEndDate,
   })  : createdAt = createdAt ?? DateTime.now(),
         lastLoginAt = lastLoginAt ?? DateTime.now();
 
@@ -36,6 +42,11 @@ class User {
       lastLoginAt: map['lastLoginAt'] != null
           ? (map['lastLoginAt'] as Timestamp).toDate()
           : DateTime.now(),
+      isSubscribed: map['isSubscribed'] ?? false,
+      subscriptionType: map['subscriptionType'],
+      subscriptionEndDate: map['subscriptionEndDate'] != null
+          ? (map['subscriptionEndDate'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -48,6 +59,11 @@ class User {
       'balance': balance,
       'createdAt': Timestamp.fromDate(createdAt),
       'lastLoginAt': Timestamp.fromDate(lastLoginAt),
+      'isSubscribed': isSubscribed,
+      'subscriptionType': subscriptionType,
+      'subscriptionEndDate': subscriptionEndDate != null
+          ? Timestamp.fromDate(subscriptionEndDate!)
+          : null,
     };
   }
 
@@ -60,6 +76,9 @@ class User {
     double? balance,
     DateTime? createdAt,
     DateTime? lastLoginAt,
+    bool? isSubscribed,
+    String? subscriptionType,
+    DateTime? subscriptionEndDate,
   }) {
     return User(
       uid: uid ?? this.uid,
@@ -70,6 +89,9 @@ class User {
       balance: balance ?? this.balance,
       createdAt: createdAt ?? this.createdAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
+      isSubscribed: isSubscribed ?? this.isSubscribed,
+      subscriptionType: subscriptionType ?? this.subscriptionType,
+      subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
     );
   }
 }

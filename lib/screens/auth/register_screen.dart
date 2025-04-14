@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/screens/home/home_screen.dart';
+import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/widgets/loading_indicator.dart';
+import 'package:wealth_wise/widgets/custom_action_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -20,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -45,22 +48,146 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _registerWithEmailPassword() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.registerWithEmailPassword(
-      _emailController.text.trim(),
-      _passwordController.text,
-      _nameController.text.trim(),
-    );
+    setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final success = await authProvider.registerWithEmailPassword(
+        _emailController.text.trim(),
+        _passwordController.text,
+        _nameController.text.trim(),
       );
+
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else if (mounted && authProvider.error != null) {
+        // Check if the error is about existing account
+        if (authProvider.error!.contains('already registered')) {
+          // Show a specific dialog for already registered users
+          _showAccountExistsDialog();
+        } else {
+          // Show regular error message
+          scaffoldMessenger.showSnackBar(
+            SnackBar(content: Text(authProvider.error!)),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signUpWithGoogle() async {
+    setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final success = await authProvider.signUpWithGoogle();
+
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else if (mounted) {
+        // Check if there's an error about existing account
+        if (authProvider.error != null &&
+            authProvider.error!.contains('already registered')) {
+          _showAccountExistsDialog();
+        } else {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(content: Text('Failed to sign up with Google')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signUpWithFacebook() async {
+    setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final success = await authProvider.signUpWithFacebook();
+
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else if (mounted) {
+        // Check if there's an error about existing account
+        if (authProvider.error != null &&
+            authProvider.error!.contains('already registered')) {
+          _showAccountExistsDialog();
+        } else {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(content: Text('Failed to sign up with Facebook')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _navigateToLogin() {
+    // First close the register screen
     Navigator.of(context).pop();
+
+    // Then push the login screen if not already on it
+    // This ensures we go to login even when the register screen was opened from another page
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+  }
+
+  // Helper method to show account exists dialog
+  void _showAccountExistsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Account Already Exists'),
+        content: const Text(
+            'An account with this email already exists. Would you like to sign in instead?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context); // Close the dialog
+              _navigateToLogin(); // Navigate to login screen
+            },
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -203,12 +330,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                       // Register button
                       ElevatedButton(
-                        onPressed: authProvider.isLoading
+                        onPressed: _isLoading || authProvider.isLoading
                             ? null
                             : _registerWithEmailPassword,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: authProvider.isLoading
+                          child: _isLoading || authProvider.isLoading
                               ? const LoadingIndicator(size: 24, message: '')
                               : const Text(
                                   'Create Account',
@@ -230,6 +357,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             textAlign: TextAlign.center,
                           ),
                         ),
+
+                      const SizedBox(height: 20),
+
+                      // OR divider
+                      Row(
+                        children: [
+                          const Expanded(child: Divider()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'OR',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color:
+                                    theme.colorScheme.onSurface.withAlpha(128),
+                              ),
+                            ),
+                          ),
+                          const Expanded(child: Divider()),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Social sign-up buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CustomActionButton(
+                              onPressed: _isLoading || authProvider.isLoading
+                                  ? null
+                                  : _signUpWithGoogle,
+                              label: 'Google',
+                              icon: Icons.g_mobiledata,
+                              isSmall: true,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: CustomActionButton(
+                              onPressed: _isLoading || authProvider.isLoading
+                                  ? null
+                                  : _signUpWithFacebook,
+                              label: 'Facebook',
+                              icon: Icons.facebook,
+                              isSmall: true,
+                            ),
+                          ),
+                        ],
+                      ),
 
                       const SizedBox(height: 24),
 

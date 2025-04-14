@@ -4,6 +4,8 @@ import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/theme/app_theme.dart';
 import 'package:wealth_wise/screens/subscription/subscription_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wealth_wise/screens/onboarding/personalization_screen.dart';
+import 'package:lottie/lottie.dart';
 
 class OnboardingScreen extends StatefulWidget {
   static const routeName = '/onboarding';
@@ -18,6 +20,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   bool _showSubscriptionOffer = false;
+  bool _showPersonalization = false;
 
   final List<Map<String, dynamic>> _onboardingData = [
     {
@@ -26,6 +29,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Your personal finance companion for smarter money management.',
       'icon': Icons.account_balance_wallet,
       'image': 'assets/images/onboarding_1.png',
+      'animation': 'assets/animations/wallet.json',
       'color': AppTheme.primaryGreen,
     },
     {
@@ -34,6 +38,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Easily record and categorize your expenses to understand where your money goes.',
       'icon': Icons.sync_alt,
       'image': 'assets/images/onboarding_2.png',
+      'animation': 'assets/animations/track_money.json',
       'color': AppTheme.secondaryBlue,
     },
     {
@@ -42,6 +47,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Define targets for your financial future and track your progress.',
       'icon': Icons.flag,
       'image': 'assets/images/onboarding_3.png',
+      'animation': 'assets/animations/goals.json',
       'color': AppTheme.warningOrange,
     },
     {
@@ -50,6 +56,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           'Visualize your finances with beautiful charts and insightful analytics.',
       'icon': Icons.insights,
       'image': 'assets/images/onboarding_4.png',
+      'animation': 'assets/animations/charts.json',
       'color': AppTheme.primaryGreen,
     },
   ];
@@ -71,8 +78,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  void _showPersonalizationScreen() {
+    setState(() {
+      _showPersonalization = true;
+    });
+  }
+
   void _showSubscriptionScreen() {
     setState(() {
+      _showPersonalization = false;
       _showSubscriptionOffer = true;
     });
   }
@@ -91,6 +105,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showPersonalization) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, dynamic result) {
+          if (!didPop) {
+            setState(() {
+              _showPersonalization = false;
+            });
+          }
+          return;
+        },
+        child: PersonalizationScreen(
+          onComplete: _showSubscriptionScreen,
+        ),
+      );
+    }
+
     if (_showSubscriptionOffer) {
       return PopScope(
         canPop: false,
@@ -127,6 +158,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   _onboardingData[index]['description'],
                   _onboardingData[index]['icon'],
                   _onboardingData[index]['image'],
+                  _onboardingData[index]['animation'],
                   _onboardingData[index]['color'],
                 );
               },
@@ -140,7 +172,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildOnboardingPage(String title, String description, IconData icon,
-      String imagePath, Color color) {
+      String imagePath, String animationPath, Color color) {
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -148,17 +180,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           const Spacer(),
           Container(
-            width: 160,
-            height: 160,
+            width: 200,
+            height: 200,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              size: 80,
-              color: color,
-            ),
+            child: animationPath.isNotEmpty
+                ? _buildAnimationWithFallback(animationPath, icon, color)
+                : Icon(
+                    icon,
+                    size: 80,
+                    color: color,
+                  ),
           ),
           const SizedBox(height: 40),
           Text(
@@ -182,6 +216,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildAnimationWithFallback(
+      String animationPath, IconData fallbackIcon, Color color) {
+    return FutureBuilder<bool>(
+      future: _checkAssetExists(animationPath),
+      builder: (context, snapshot) {
+        // If asset exists and loaded successfully
+        if (snapshot.connectionState == ConnectionState.done &&
+            snapshot.data == true) {
+          return Lottie.asset(
+            animationPath,
+            repeat: true,
+            animate: true,
+          );
+        }
+        // Otherwise show fallback icon
+        return Icon(
+          fallbackIcon,
+          size: 80,
+          color: color,
+        );
+      },
+    );
+  }
+
+  Future<bool> _checkAssetExists(String assetPath) async {
+    try {
+      await rootBundle.load(assetPath);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   Widget _buildPageIndicator() {
@@ -214,7 +281,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           children: [
             TextButton(
               onPressed: () {
-                _showSubscriptionScreen();
+                _showPersonalizationScreen();
               },
               child: Text(
                 'Skip',
@@ -232,7 +299,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     curve: Curves.easeInOut,
                   );
                 } else {
-                  _showSubscriptionScreen();
+                  _showPersonalizationScreen();
                 }
               },
               style: ElevatedButton.styleFrom(

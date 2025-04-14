@@ -24,12 +24,14 @@ import 'package:wealth_wise/providers/expense_provider.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/providers/currency_provider.dart';
 import 'package:wealth_wise/providers/notification_provider.dart';
+import 'package:wealth_wise/providers/user_preferences_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:wealth_wise/widgets/loading_indicator.dart';
 import 'package:wealth_wise/providers/theme_provider.dart';
 import 'package:wealth_wise/services/billing_service.dart';
+import 'package:wealth_wise/providers/biometric_auth_provider.dart';
 
 // Flag to toggle Firebase auth (set to false for demo mode)
 const bool useFirebase = true;
@@ -254,6 +256,12 @@ class _MyAppState extends State<MyApp> {
 
         // 9. Notification provider
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+
+        // 10. User Preferences provider
+        ChangeNotifierProvider(create: (_) => UserPreferencesProvider()),
+
+        // 11. Biometric Auth provider
+        ChangeNotifierProvider(create: (_) => BiometricAuthProvider()),
       ],
       child: Consumer2<AuthProvider, ThemeProvider>(
         builder: (context, authProvider, themeProvider, _) {
@@ -296,6 +304,8 @@ class _MyAppState extends State<MyApp> {
                 Provider.of<CategoryProvider>(context, listen: false);
             final financeProvider =
                 Provider.of<FinanceProvider>(context, listen: false);
+            final userPreferencesProvider =
+                Provider.of<UserPreferencesProvider>(context, listen: false);
 
             // Run this only once when the user logs in
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -303,6 +313,9 @@ class _MyAppState extends State<MyApp> {
               categoryProvider.loadCategoriesByUser(userId);
               financeProvider.setTimeframe(TimeFrame.month);
               financeProvider.fetchTransactions();
+
+              // Load user preferences
+              userPreferencesProvider.loadUserPreferences(userId);
             });
           }
 

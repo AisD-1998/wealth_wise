@@ -6,6 +6,10 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:math' as math;
 import 'package:wealth_wise/utils/currency_formatter.dart';
+import 'package:wealth_wise/controllers/feature_access_controller.dart';
+import 'package:wealth_wise/providers/auth_provider.dart';
+import 'package:wealth_wise/services/database_service.dart';
+import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -18,11 +22,14 @@ class _ReportsScreenState extends State<ReportsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String _selectedTimeframe = 'Monthly';
+  bool _isLoading = true;
+  bool _hasAccess = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _checkAccess();
   }
 
   @override
@@ -31,10 +38,125 @@ class _ReportsScreenState extends State<ReportsScreen>
     super.dispose();
   }
 
+  Future<void> _checkAccess() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+
+      if (user != null) {
+        // Use the user data from Firebase Auth
+        final userData =
+            await Provider.of<DatabaseService>(context, listen: false)
+                .getUserData(user.uid);
+
+        // Check if user has access to premium analytics
+        final featureAccessController = FeatureAccessController();
+        final hasAccess = await featureAccessController.hasAccess(
+            userData, 'advanced_analytics');
+
+        setState(() {
+          _hasAccess = hasAccess;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _hasAccess = false;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _hasAccess = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Widget _buildPremiumPrompt() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.bar_chart,
+            size: 64,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 180),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Premium Reports',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              'Unlock detailed financial reports and insights with a Premium subscription',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () {
+              PremiumFeaturePrompt.showPremiumDialog(
+                context,
+                featureName: 'Advanced Reports',
+                description:
+                    'Get detailed spending analytics, income tracking, and financial insights with Premium.',
+                icon: Icons.bar_chart,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            child: const Text(
+              'Upgrade to Premium',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_hasAccess) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Reports'),
+        ),
+        body: _buildPremiumPrompt(),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(

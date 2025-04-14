@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:wealth_wise/services/database_service.dart';
 import 'package:logging/logging.dart';
+import 'package:wealth_wise/controllers/feature_access_controller.dart';
 
 class SubscriptionProvider extends ChangeNotifier {
   // Logger
@@ -543,6 +544,35 @@ class SubscriptionProvider extends ChangeNotifier {
   bool shouldShowAds() {
     // Don't show ads if user is subscribed
     if (_isSubscribed) return false;
+
+    // Added check with FeatureAccessController for ad-free feature
+    try {
+      final featureAccessController = FeatureAccessController();
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user != null) {
+        final databaseService = _databaseService;
+
+        // Using the non-awaited version to make this method synchronous
+        // This is fine for UI decisions as we already have _isSubscribed check
+        databaseService.getUserData(user.uid).then((userData) {
+          if (userData != null) {
+            featureAccessController
+                .hasAccess(userData, 'ad_free')
+                .then((hasAccess) {
+              // If user should have ad-free, update internal state
+              if (hasAccess && _isSubscribed != hasAccess) {
+                _isSubscribed = hasAccess;
+                notifyListeners();
+              }
+            });
+          }
+        });
+      }
+    } catch (e) {
+      _logger.warning('Error in ad-free check: $e');
+      // Continue with default behavior
+    }
 
     // Show ads on every 3rd app load to avoid overwhelming new users
     return _appLoadCount % 3 == 0;

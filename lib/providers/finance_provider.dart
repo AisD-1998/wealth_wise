@@ -6,6 +6,7 @@ import 'package:wealth_wise/services/database_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/models/category.dart' as app_category;
+import 'package:wealth_wise/controllers/feature_access_controller.dart';
 import '../utils/migration_helpers.dart';
 
 enum TimeFrame { day, week, month, year, all }
@@ -243,6 +244,76 @@ class FinanceProvider with ChangeNotifier {
     await initializeFinanceData(userId);
   }
 
+  // Check if user has premium status
+  Future<bool> _checkPremiumStatus() async {
+    try {
+      if (_userId == null || _userId!.isEmpty) return false;
+
+      final user = await _databaseService.getUserData(_userId!);
+      if (user == null) return false;
+
+      return user.isSubscribed &&
+          (user.subscriptionEndDate?.isAfter(DateTime.now()) ?? false);
+    } catch (e) {
+      _logger.warning('Error checking premium status: $e');
+      return false;
+    }
+  }
+
+  // Check if user can add more saving goals
+  Future<bool> canAddSavingGoal() async {
+    if (_userId == null || _userId!.isEmpty) return false;
+
+    try {
+      final isPremium = await _checkPremiumStatus();
+      if (isPremium) return true;
+
+      // For free users, check quota
+      final featureAccessController = FeatureAccessController();
+      final user = await _databaseService.getUserData(_userId!);
+      return featureAccessController.checkQuota(
+          user, 'saving_goals', _savingGoals.length);
+    } catch (e) {
+      _logger.warning('Error checking if user can add saving goal: $e');
+      return false;
+    }
+  }
+
+  // Get remaining quota for a feature
+  Future<int> getRemainingQuota(String featureType) async {
+    if (_userId == null || _userId!.isEmpty) return 0;
+
+    try {
+      final isPremium = await _checkPremiumStatus();
+      if (isPremium) return -1; // unlimited
+
+      final featureAccessController = FeatureAccessController();
+      final user = await _databaseService.getUserData(_userId!);
+
+      if (user == null) return 0;
+
+      int currentCount = 0;
+      switch (featureType) {
+        case 'saving_goals':
+          currentCount = _savingGoals.length;
+          break;
+        case 'custom_categories':
+          currentCount = _categories.length;
+          break;
+        case 'transactions_per_month':
+          currentCount = _transactions.length;
+          break;
+      }
+
+      final quotaLimit =
+          featureAccessController.getQuotaLimit(featureType, isPremium);
+      return quotaLimit == -1 ? -1 : quotaLimit - currentCount;
+    } catch (e) {
+      _logger.warning('Error getting remaining quota: $e');
+      return 0;
+    }
+  }
+
   // Load transactions
   Future<void> fetchTransactions() async {
     if (_userId == null || _userId!.isEmpty) {
@@ -253,45 +324,62 @@ class FinanceProvider with ChangeNotifier {
     try {
       _logger.info('Fetching transactions for user: $_userId');
 
+      // Check if user has premium status
+      final isPremium = await _checkPremiumStatus();
+      _logger.info('User premium status: $isPremium');
+
       // Direct Firestore query with more detailed error handling
       try {
-        final collection = FirebaseFirestore.instance.collection(
-          'transactions',
-        );
+        final collection =
+            FirebaseFirestore.instance.collection('transactions');
         _logger.info('Collection reference created: ${collection.path}');
 
         // Check if collection exists
         final collectionSnapshot = await collection.limit(1).get();
+        _logger
+            .info('Collection exists: ${collectionSnapshot.docs.isNotEmpty}');
+
+        // Build query
+        Query query = collection.where('userId', isEqualTo: _userId);
+
+        // For free users, limit to last 30 days if no date range is specified
+        if (!isPremium) {
+          final thirtyDaysAgo =
+              DateTime.now().subtract(const Duration(days: 30));
+          query = query.where('date',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(thirtyDaysAgo));
+          _logger.info('Free user: limiting transactions to last 30 days');
+        }
+
+        // Perform the query
+        final snapshot = await query.get();
         _logger.info(
-          'Collection exists: ${collectionSnapshot.docs.isNotEmpty}',
-        );
+            'Retrieved ${snapshot.docs.length} transactions from database');
 
-        // Perform query with fewer constraints initially
-        final snapshot =
-            await collection.where('userId', isEqualTo: _userId).get();
+        // Process query results
+        _transactions = [];
 
-        _logger.info(
-          'Retrieved ${snapshot.docs.length} transactions from database',
-        );
+        // For free users, limit to 50 transactions
+        final docsToProcess = !isPremium && snapshot.docs.length > 50
+            ? snapshot.docs.take(50).toList()
+            : snapshot.docs;
 
-        // Log individual documents for debugging
-        for (var doc in snapshot.docs) {
-          _logger.info('Document ID: ${doc.id}, Data: ${doc.data()}');
+        if (!isPremium && snapshot.docs.length > 50) {
+          _logger.info(
+              'Free user: limiting to 50 transactions out of ${snapshot.docs.length}');
         }
 
         // Convert to transaction objects with careful error handling
-        _transactions = [];
-        for (var doc in snapshot.docs) {
+        for (var doc in docsToProcess) {
           try {
-            final data = doc.data();
+            final data = doc.data() as Map<String, dynamic>;
             // Validate date field format before conversion
             if (data['date'] is Timestamp) {
               final transaction = app_model.Transaction.fromMap(data, doc.id);
               _transactions.add(transaction);
             } else {
               _logger.warning(
-                'Document ${doc.id} has invalid date format: ${data['date']}',
-              );
+                  'Document ${doc.id} has invalid date format: ${data['date']}');
             }
           } catch (docError) {
             _logger.warning('Error parsing document ${doc.id}: $docError');
@@ -306,8 +394,7 @@ class FinanceProvider with ChangeNotifier {
           _logger.warning('No valid transactions found for user: $_userId');
         } else {
           _logger.info(
-            'Successfully loaded ${_transactions.length} valid transactions',
-          );
+              'Successfully loaded ${_transactions.length} valid transactions');
         }
       } catch (firestoreError) {
         _logger.severe('Firestore query error: $firestoreError');
@@ -1001,7 +1088,33 @@ class FinanceProvider with ChangeNotifier {
     }
 
     try {
+      // Check if user has premium status
+      final isPremium = await _checkPremiumStatus();
+
+      // Get all user's saving goals
       _savingGoals = await _databaseService.getSavingGoals(_userId!);
+
+      // For free users, limit the number of goals if they somehow have more than allowed
+      if (!isPremium) {
+        final featureAccessController = FeatureAccessController();
+        final limit =
+            featureAccessController.getQuotaLimit('saving_goals', false);
+
+        if (limit != -1 && _savingGoals.length > limit) {
+          _logger.info(
+              'Free user has ${_savingGoals.length} goals, limiting to $limit');
+          // Keep only active goals up to the limit
+          _savingGoals.sort((a, b) {
+            // Sort by completion status (incomplete first) then by current amount (highest first)
+            if (a.isCompleted != b.isCompleted) {
+              return a.isCompleted ? 1 : -1;
+            }
+            return b.currentAmount.compareTo(a.currentAmount);
+          });
+          _savingGoals = _savingGoals.take(limit).toList();
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       _logger.warning('Error fetching saving goals: $e');
@@ -1164,7 +1277,49 @@ class FinanceProvider with ChangeNotifier {
     }
 
     try {
+      // Check if user has premium status
+      final isPremium = await _checkPremiumStatus();
+
+      // Get all categories
       _categories = await _databaseService.getCategories(_userId!);
+
+      // For free users, limit the number of custom categories
+      if (!isPremium) {
+        final featureAccessController = FeatureAccessController();
+        final limit =
+            featureAccessController.getQuotaLimit('custom_categories', false);
+
+        if (limit != -1) {
+          // Default category names that should always be available
+          final defaultCategoryNames = [
+            'Salary', 'Investments', 'Business', 'Gifts', // Income
+            'Food & Dining', 'Housing', 'Transportation', 'Entertainment',
+            'Utilities', 'Health', 'Other' // Expense
+          ];
+
+          // Separate default and custom categories
+          final defaultCategories = _categories
+              .where((c) => defaultCategoryNames.contains(c.name))
+              .toList();
+
+          final customCategories = _categories
+              .where((c) => !defaultCategoryNames.contains(c.name))
+              .toList();
+
+          if (customCategories.length > limit) {
+            _logger.info(
+                'Free user has ${customCategories.length} custom categories, limiting to $limit');
+            // Sort by most recently used
+            customCategories.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+            // Keep only the most recently used ones up to the limit
+            final allowedCustomCategories =
+                customCategories.take(limit).toList();
+            // Combine default and allowed custom categories
+            _categories = [...defaultCategories, ...allowedCustomCategories];
+          }
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       _logger.warning('Error fetching categories: $e');

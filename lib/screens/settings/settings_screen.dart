@@ -5,6 +5,8 @@ import 'package:wealth_wise/providers/theme_provider.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/providers/currency_provider.dart';
 import 'package:wealth_wise/providers/notification_provider.dart';
+import 'package:wealth_wise/providers/biometric_auth_provider.dart';
+import 'package:wealth_wise/services/biometric_service.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/screens/profile/profile_screen.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
@@ -402,13 +404,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final authProvider = Provider.of<AuthProvider>(context);
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final subscriptionProvider = Provider.of<SubscriptionProvider>(context);
     final currencyProvider = Provider.of<CurrencyProvider>(context);
     final notificationProvider = Provider.of<NotificationProvider>(context);
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final biometricAuthProvider = Provider.of<BiometricAuthProvider>(context);
 
     if (_isLoading) {
       return Scaffold(
@@ -593,6 +596,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _openNotificationSettings(notificationProvider),
           ),
 
+          // Only show biometric login option if the device supports it
+          if (biometricAuthProvider.isAvailable) ...[
+            const Divider(indent: 72, endIndent: 0),
+
+            // Fingerprint login settings
+            const SizedBox(height: 16),
+            SwitchListTile(
+              secondary: Icon(
+                Icons.fingerprint,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('Fingerprint Login'),
+              subtitle: Text(
+                  biometricAuthProvider.isEnabled ? 'Enabled' : 'Disabled'),
+              value: biometricAuthProvider.isEnabled,
+              onChanged: (value) =>
+                  _toggleBiometricLogin(biometricAuthProvider, authProvider),
+            ),
+          ],
+
           // About and Help section header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
@@ -636,6 +659,293 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Method to toggle biometric login
+  Future<void> _toggleBiometricLogin(
+      BiometricAuthProvider biometricAuthProvider,
+      AuthProvider authProvider) async {
+    // Store BuildContext reference before async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // If biometric is already enabled, just disable it
+    if (biometricAuthProvider.isEnabled) {
+      await biometricAuthProvider.disableBiometricLogin();
+      if (!mounted) return;
+
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Fingerprint login disabled'),
+        ),
+      );
+      return;
+    }
+
+    // Enable biometric login
+    if (authProvider.user == null) {
+      if (!mounted) return;
+
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('You need to be logged in to enable fingerprint login'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Use the direct approach that works in the test button
+    try {
+      // Show authentication dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          title: Text('Authenticating'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Verify your fingerprint...'),
+            ],
+          ),
+        ),
+      );
+
+      // Directly use the biometric service instead of going through provider
+      final biometricService = BiometricService();
+      final authenticated = await biometricService.authenticate(
+        reason: 'Verify your identity to enable fingerprint login',
+      );
+
+      // Close the authentication dialog
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.pop(context);
+      }
+
+      if (!mounted) return;
+
+      // If authentication failed, show error and return
+      if (!authenticated) {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Biometric authentication failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Authentication succeeded, now directly save credentials
+      final userEmail = authProvider.user!.email;
+
+      // Get the auth provider information
+      final userProvider =
+          authProvider.firebaseUser?.providerData.isNotEmpty == true
+              ? authProvider.firebaseUser!.providerData.first.providerId
+              : 'password';
+
+      debugPrint(
+          "Setting up fingerprint login for user with provider: $userProvider");
+
+      // Add a short delay before saving credentials
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Check if widget is still mounted before showing dialog
+      if (!mounted) return;
+
+      // For email/password, we need to ask the user to enter their password once more
+      String passwordForStorage = '';
+      bool isTokenBased = true;
+
+      if (userProvider == 'password') {
+        // For email/password authentication, we need to store the actual password
+        // Show a dialog to ask for the password
+        final password = await _promptForPassword();
+
+        if (password == null || password.isEmpty) {
+          // User cancelled
+          if (!mounted) return;
+
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Password required to set up fingerprint login'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        passwordForStorage = password;
+        isTokenBased = false;
+      }
+
+      // First, perform the async operation to save credentials without showing dialog directly
+      // Instead of using FutureBuilder inside a dialog, we'll wait for the future to complete
+      // and then show a dialog with the result
+      bool success = false;
+      try {
+        // Show a loading dialog first
+        if (!mounted) return;
+        _showLoadingDialog('Setting up fingerprint login...');
+
+        // Wait for the operation to complete
+        success = await biometricService.saveCredentials(
+          userEmail,
+          passwordForStorage,
+          isTokenBased: isTokenBased,
+          authProvider: userProvider,
+        );
+
+        // Close the loading dialog
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.pop(context);
+        }
+
+        // Check if widget is still mounted before showing result dialog
+        if (!mounted) return;
+
+        // Show success or error dialog
+        _showResultDialog(success, biometricAuthProvider);
+      } catch (e) {
+        // Close the loading dialog if it's open
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.pop(context);
+        }
+
+        if (!mounted) return;
+
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      // Close any open dialogs
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.pop(context);
+      }
+
+      if (!mounted) return;
+
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Helper method to show loading dialog
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Setting Up Fingerprint Login'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(message),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper method to show result dialog
+  void _showResultDialog(
+      bool success, BiometricAuthProvider biometricAuthProvider) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(success ? 'Success' : 'Error'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              color: success ? Colors.green : Colors.red,
+              size: 48,
+            ),
+            const SizedBox(height: 16),
+            Text(success
+                ? 'Fingerprint login enabled successfully!'
+                : 'Failed to enable fingerprint login'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Manually refresh the provider state
+              biometricAuthProvider.refreshState();
+            },
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _promptForPassword() async {
+    final passwordController = TextEditingController();
+    bool obscurePassword = true;
+
+    return await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('Enter Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                  'Please enter your password to enable fingerprint login.'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: obscurePassword,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscurePassword ? Icons.visibility : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        obscurePassword = !obscurePassword;
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context, passwordController.text);
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      }),
     );
   }
 }

@@ -5,6 +5,8 @@ import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/models/transaction.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
+import 'package:wealth_wise/providers/user_preferences_provider.dart';
+import 'package:wealth_wise/models/user_preferences.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
 import 'package:wealth_wise/screens/savings/savings_screen.dart';
 import 'package:wealth_wise/screens/reports/reports_screen.dart';
@@ -16,6 +18,9 @@ import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 import 'package:wealth_wise/utils/currency_formatter.dart';
+import 'package:wealth_wise/controllers/feature_access_controller.dart';
+import 'package:wealth_wise/services/database_service.dart';
+import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +32,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final PageController _pageController = PageController();
+  bool _hasAccessToReports = false;
 
   final List<Widget> _screens = [
     const HomeScreenDashboard(),
@@ -39,12 +45,55 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _checkReportsAccess();
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkReportsAccess() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user != null) {
+      final userData =
+          await Provider.of<DatabaseService>(context, listen: false)
+              .getUserData(user.uid);
+
+      final featureAccessController = FeatureAccessController();
+      final hasAccess = await featureAccessController.hasAccess(
+          userData, 'advanced_analytics');
+
+      setState(() {
+        _hasAccessToReports = hasAccess;
+      });
+    }
+  }
+
+  void _handleNavigationTap(int index) {
+    // Check if user is trying to access the Reports tab (index 4)
+    if (index == 4 && !_hasAccessToReports) {
+      // Show premium prompt instead of navigating
+      PremiumFeaturePrompt.showPremiumDialog(
+        context,
+        featureName: 'Advanced Reports',
+        description:
+            'Unlock detailed financial insights and reports with Premium subscription',
+        icon: Icons.bar_chart,
+      );
+    } else {
+      setState(() {
+        _selectedIndex = index;
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      });
+    }
   }
 
   @override
@@ -54,9 +103,19 @@ class _HomeScreenState extends State<HomeScreen> {
         child: PageView(
           controller: _pageController,
           onPageChanged: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
+            // Only update the state if the page is accessible
+            if (index != 4 || _hasAccessToReports) {
+              setState(() {
+                _selectedIndex = index;
+              });
+            } else if (index == 4) {
+              // If user tries to swipe to Reports page, bounce back to previous page
+              _pageController.animateToPage(
+                _selectedIndex,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
           },
           children: _screens,
         ),
@@ -104,16 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-            _pageController.animateToPage(
-              index,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-          });
-        },
+        onDestinationSelected: _handleNavigationTap,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -182,6 +232,8 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     final theme = Theme.of(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final financeProvider = Provider.of<FinanceProvider>(context);
+    final userPreferencesProvider =
+        Provider.of<UserPreferencesProvider>(context);
 
     return Scaffold(
       body: RefreshIndicator(
@@ -208,6 +260,11 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               expenses: financeProvider.totalExpenses,
             ),
             const SizedBox(height: 24.0),
+
+            // Personalized content based on user preferences
+            if (userPreferencesProvider.userPreferences != null)
+              _buildPersonalizedContent(
+                  context, userPreferencesProvider.userPreferences!),
 
             // Quick Actions Section
             Text(
@@ -861,6 +918,136 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
         ),
       );
     }
+  }
+
+  Widget _buildPersonalizedContent(
+      BuildContext context, UserPreferences preferences) {
+    // Determine what content to show based on user's primary goal
+    String title;
+    String message;
+    IconData icon;
+    Widget? actionButton;
+
+    switch (preferences.primaryGoal) {
+      case FinancialGoal.saveMoney:
+        title = "Saving Money Goal";
+        message =
+            "Based on your spending habits, you could save \$${(_getTotalMonthlySpending() * 0.15).toStringAsFixed(2)} this month by reducing non-essential expenses.";
+        icon = Icons.savings;
+        actionButton = OutlinedButton.icon(
+          icon: const Icon(Icons.add),
+          label: const Text('Create Savings Goal'),
+          onPressed: () {
+            // Navigate to savings goal creation
+            Navigator.push(context,
+                MaterialPageRoute(builder: (context) => const SavingsScreen()));
+          },
+        );
+        break;
+
+      case FinancialGoal.budgetBetter:
+        title = "Budget Recommendations";
+        message =
+            "Set up a 50/30/20 budget: 50% for needs, 30% for wants, and 20% for savings and debt repayment.";
+        icon = Icons.account_balance_wallet;
+        break;
+
+      case FinancialGoal.trackExpenses:
+        title = "Expense Insights";
+        message =
+            "You've added ${_getRecentTransactionsCount()} transactions this month. Regular tracking helps identify spending patterns.";
+        icon = Icons.track_changes;
+        actionButton = OutlinedButton.icon(
+          icon: const Icon(Icons.add),
+          label: const Text('Add Transaction'),
+          onPressed: () {
+            // Navigate to add transaction
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const TransactionsScreen()));
+          },
+        );
+        break;
+
+      case FinancialGoal.payOffDebt:
+        title = "Debt Reduction";
+        message =
+            "Using the snowball method, focus on paying off your smallest debts first for psychological wins.";
+        icon = Icons.credit_card_off;
+        break;
+
+      case FinancialGoal.investForFuture:
+        title = "Investment Tips";
+        message = preferences.expertise == FinancialExpertise.beginner
+            ? "Start with a retirement account like a 401(k) or IRA before exploring other investments."
+            : "Consider diversifying your portfolio with a mix of stocks, bonds, and real estate investments.";
+        icon = Icons.trending_up;
+        break;
+
+      default:
+        title = "Financial Tip";
+        message =
+            "Track your expenses regularly to understand where your money goes.";
+        icon = Icons.lightbulb_outline;
+    }
+
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 24.0),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (actionButton != null) ...[
+              const SizedBox(height: 16),
+              actionButton,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  double _getTotalMonthlySpending() {
+    // This would be replaced with actual data from the finance provider
+    return Provider.of<FinanceProvider>(context, listen: false).totalExpenses;
+  }
+
+  int _getRecentTransactionsCount() {
+    // This would be replaced with actual data from the finance provider
+    return Provider.of<FinanceProvider>(context, listen: false)
+        .recentTransactions
+        .length;
   }
 }
 

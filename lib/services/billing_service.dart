@@ -4,9 +4,11 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:wealth_wise/services/database_service.dart';
+import 'package:firebase_auth/firebase_auth.dart' as auth;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
+import 'package:wealth_wise/models/user.dart';
+import 'package:wealth_wise/services/database_service.dart';
 
 /// A service class that handles all Google Play Billing operations
 class BillingService {
@@ -62,6 +64,9 @@ class BillingService {
   static const String _subscriptionEndDateKey = 'subscription_end_date';
   static const String _productIdKey = 'subscription_product_id';
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
+
   /// Initialize the billing service
   Future<void> initialize() async {
     _isLoading = true;
@@ -72,7 +77,7 @@ class BillingService {
       await _loadSubscriptionStatusFromPrefs();
 
       // Then try to get the latest status from the server
-      final user = FirebaseAuth.instance.currentUser;
+      final user = _auth.currentUser;
       if (user != null) {
         await _fetchSubscriptionFromDatabase(user.uid);
       }
@@ -258,7 +263,7 @@ class BillingService {
       await _saveSubscriptionStatusToPrefs(purchase.productID);
 
       // Save to database if user is logged in
-      final user = FirebaseAuth.instance.currentUser;
+      final user = _auth.currentUser;
       if (user != null) {
         await _saveSubscriptionToDatabase(user.uid, purchase.productID);
       }
@@ -476,41 +481,53 @@ class BillingService {
     }
   }
 
-  /// Restore previous purchases
+  /// Restore purchases from platform store
   Future<bool> restorePurchases() async {
     try {
-      _logger.info('Restoring purchases');
-      await _inAppPurchase.restorePurchases();
-      _logger.info('Restore purchases initiated');
-      return true;
+      // In a real app, this would call the platform's billing API
+      // to restore purchases and validate receipts
+
+      _logger.info('Restore purchases called - would check platform store');
+      return await isUserSubscribed();
     } catch (e) {
       _logger.severe('Error restoring purchases: $e');
       return false;
     }
   }
 
-  /// Cancel the subscription
+  /// Cancel a user's subscription
   Future<bool> cancelSubscription() async {
     try {
-      _logger.info('Canceling subscription');
-
-      // In production, you would integrate with the store's API to cancel
-      // For now, we'll just simulate this by clearing the local status
-      _isSubscribed = false;
-      _subscriptionEndDate = null;
-
-      await _saveSubscriptionStatusToPrefs();
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await _saveSubscriptionToDatabase(user.uid);
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        return false;
       }
 
-      _logger.info('Subscription canceled');
+      // In a real app, this would call the platform's billing API to cancel
+      // For this mock implementation, we'll just update the database
+
+      await _updateUserSubscriptionFields(currentUser.uid, {
+        'isSubscribed': false,
+        'subscriptionType': null,
+        'subscriptionEndDate': null,
+      });
+
+      _logger.info('Subscription cancelled successfully');
       return true;
     } catch (e) {
-      _logger.severe('Error canceling subscription: $e');
+      _logger.severe('Error cancelling subscription: $e');
       return false;
+    }
+  }
+
+  /// Update user subscription fields in the database
+  Future<void> _updateUserSubscriptionFields(
+      String userId, Map<String, dynamic> fields) async {
+    try {
+      await _firestore.collection('users').doc(userId).update(fields);
+    } catch (e) {
+      _logger.severe('Error updating user subscription fields: $e');
+      rethrow;
     }
   }
 
@@ -524,5 +541,123 @@ class BillingService {
   /// Clean up resources when done
   void dispose() {
     _purchaseSubscription?.cancel();
+  }
+
+  /// Get available subscription plans
+  List<Map<String, dynamic>> getSubscriptionPlans() {
+    return [
+      {
+        'id': _monthlySubscriptionId,
+        'name': 'Monthly Premium',
+        'price': 4.99,
+        'period': 'month',
+        'description': 'Unlimited access to all premium features',
+        'isPopular': false,
+      },
+      {
+        'id': _annualSubscriptionId,
+        'name': 'Annual Premium',
+        'price': 49.99,
+        'period': 'year',
+        'description': 'Save 16% compared to monthly plan',
+        'isPopular': true,
+      },
+    ];
+  }
+
+  /// Check if a user is currently subscribed
+  Future<bool> isUserSubscribed() async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        return false;
+      }
+
+      final user = await getUser(currentUser.uid);
+
+      if (user == null || !user.isSubscribed) {
+        return false;
+      }
+
+      // Check if subscription is still valid
+      if (user.subscriptionEndDate != null) {
+        final now = DateTime.now();
+        return user.subscriptionEndDate!.isAfter(now);
+      }
+
+      return false;
+    } catch (e) {
+      _logger.severe('Error checking subscription status: $e');
+      return false;
+    }
+  }
+
+  /// Process a subscription purchase
+  /// In a real app, this would integrate with platform billing APIs
+  Future<bool> processPurchase(String planId) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        _logger.warning('Cannot purchase: No user logged in');
+        return false;
+      }
+
+      // Mock the purchase flow - in a real app, this would call the platform's billing API
+      final success = await _processMockPurchase(planId);
+
+      if (success) {
+        // Calculate subscription end date based on plan
+        final DateTime now = DateTime.now();
+        late DateTime endDate;
+        String subscriptionType;
+
+        if (planId == _monthlySubscriptionId) {
+          endDate = DateTime(now.year, now.month + 1, now.day);
+          subscriptionType = 'monthly';
+        } else {
+          endDate = DateTime(now.year + 1, now.month, now.day);
+          subscriptionType = 'yearly';
+        }
+
+        // Update user's subscription status in Firestore
+        await _updateUserSubscriptionFields(currentUser.uid, {
+          'isSubscribed': true,
+          'subscriptionType': subscriptionType,
+          'subscriptionEndDate': Timestamp.fromDate(endDate),
+        });
+
+        _logger.info('Subscription purchase successful: $planId');
+        return true;
+      } else {
+        _logger.warning('Subscription purchase failed');
+        return false;
+      }
+    } catch (e) {
+      _logger.severe('Error during subscription purchase: $e');
+      return false;
+    }
+  }
+
+  /// Mock purchase process
+  /// This would be replaced with actual platform billing API calls
+  Future<bool> _processMockPurchase(String planId) async {
+    // Simulate network delay
+    await Future.delayed(const Duration(seconds: 1, milliseconds: 500));
+
+    // Mock successful purchase (would be actual payment processing in real app)
+    return true;
+  }
+
+  Future<User?> getUser(String userId) async {
+    try {
+      final doc = await _firestore.collection('users').doc(userId).get();
+      if (doc.exists) {
+        return User.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }
+      return null;
+    } catch (e) {
+      _logger.severe('Error getting user: $e');
+      return null;
+    }
   }
 }

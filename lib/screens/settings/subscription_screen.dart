@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wealth_wise/services/billing_service.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:wealth_wise/providers/subscription_provider.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -467,59 +468,70 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   void _handleSubscriptionPurchase(
       BuildContext context, BillingService billingService) async {
-    // Capture all context-dependent values before async operations
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
 
     // Show loading indicator
     scaffoldMessenger.showSnackBar(
-      const SnackBar(content: Text('Processing your subscription...')),
+      const SnackBar(
+        content: Text('Processing your subscription...'),
+        duration: Duration(seconds: 2),
+      ),
     );
 
-    // Get the appropriate product based on selection
-    final products = billingService.products;
-    if (products.isEmpty) {
-      if (mounted) {
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Subscription products not available')),
-        );
-      }
-      return;
-    }
+    try {
+      // Get the appropriate mock plan ID based on selection
+      String planId =
+          _selectedPlanIndex == 2 ? 'wealthwise_annual' : 'wealthwise_monthly';
 
-    ProductDetails selectedProduct;
+      // Call the mock purchase process
+      final success = await billingService.processPurchase(planId);
 
-    // Select the product based on index
-    if (_selectedPlanIndex == 2) {
-      // Annual
-      selectedProduct = products.firstWhere(
-        (p) => p.id.contains('annual'),
-        orElse: () => products[0],
-      );
-    } else {
-      // Monthly (default)
-      selectedProduct = products.firstWhere(
-        (p) => p.id.contains('monthly'),
-        orElse: () => products[0],
-      );
-    }
-
-    // Initiate purchase
-    final success = await billingService.purchaseSubscription(selectedProduct);
-
-    if (mounted) {
       if (success) {
-        // Show success message (purchase will be completed via the purchase stream listener)
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'Purchase initiated. Please follow the payment prompts.')),
-        );
+        // Also update the provider's subscription status for UI updates
+        await provider.setSubscriptionStatus(
+            true,
+            _selectedPlanIndex == 2
+                ? DateTime.now().add(const Duration(days: 365))
+                : DateTime.now().add(const Duration(days: 30)));
+
+        // Reload provider and billing service state to update UI globally
+        await provider.initialize();
+        await billingService.initialize();
+
+        // Force UI refresh
+        setState(() {});
+
+        // Subscription was successful - show success
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Subscription successful!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       } else {
         // Show error message
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
               content: Text(
-                  'Failed to process your subscription. Please try again later.')),
+                  'Failed to process your subscription. Please try again.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Handle exceptions
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: $e'),
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
     }

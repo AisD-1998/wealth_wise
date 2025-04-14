@@ -58,4 +58,10 @@ dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     implementation(platform("com.google.firebase:firebase-bom:32.7.4"))
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    
+    // Add the following dependencies for FragmentActivity support
+    implementation("androidx.fragment:fragment:1.5.5")
+    implementation("androidx.fragment:fragment-ktx:1.5.5")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.biometric:biometric:1.1.0")
 } 
