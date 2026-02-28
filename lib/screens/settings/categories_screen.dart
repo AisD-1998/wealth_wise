@@ -154,7 +154,7 @@ class _CategoriesScreenState extends State<CategoriesScreen>
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _selectedIcon,
+                      initialValue: _selectedIcon,
                       decoration: const InputDecoration(
                         labelText: 'Icon',
                         border: OutlineInputBorder(),
@@ -330,7 +330,7 @@ class _CategoriesScreenState extends State<CategoriesScreen>
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _selectedIcon,
+                      initialValue: _selectedIcon,
                       decoration: const InputDecoration(
                         labelText: 'Icon',
                         border: OutlineInputBorder(),

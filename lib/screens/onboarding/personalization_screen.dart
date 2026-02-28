@@ -250,8 +250,7 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                     ],
                   ),
                 ),
-                Radio(
-                  value: goal,
+                RadioGroup<FinancialGoal>(
                   groupValue: provider.tempPrimaryGoal,
                   onChanged: (FinancialGoal? value) {
                     if (value != null) {
@@ -259,7 +258,10 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                       _updateCanContinue();
                     }
                   },
-                  activeColor: AppTheme.primaryGreen,
+                  child: Radio<FinancialGoal>(
+                    value: goal,
+                    activeColor: AppTheme.primaryGreen,
+                  ),
                 ),
               ],
             ),
@@ -379,8 +381,7 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                         ),
                   ),
                 ),
-                Radio(
-                  value: range,
+                RadioGroup<IncomeRange>(
                   groupValue: provider.tempIncomeRange,
                   onChanged: (IncomeRange? value) {
                     if (value != null) {
@@ -388,7 +389,10 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                       _updateCanContinue();
                     }
                   },
-                  activeColor: AppTheme.primaryGreen,
+                  child: Radio<IncomeRange>(
+                    value: range,
+                    activeColor: AppTheme.primaryGreen,
+                  ),
                 ),
               ],
             ),
@@ -515,8 +519,7 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                     ],
                   ),
                 ),
-                Radio(
-                  value: expertise,
+                RadioGroup<FinancialExpertise>(
                   groupValue: provider.tempExpertise,
                   onChanged: (FinancialExpertise? value) {
                     if (value != null) {
@@ -524,7 +527,10 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                       _updateCanContinue();
                     }
                   },
-                  activeColor: AppTheme.primaryGreen,
+                  child: Radio<FinancialExpertise>(
+                    value: expertise,
+                    activeColor: AppTheme.primaryGreen,
+                  ),
                 ),
               ],
             ),
@@ -648,7 +654,7 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: AppTheme.primaryGreen,
+              activeThumbColor: AppTheme.primaryGreen,
             ),
           ],
         ),

@@ -159,7 +159,7 @@ class AppTheme {
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: negativeRed, width: 2),
+          borderSide: const BorderSide(color: negativeRed, width: 2),
         ),
         labelStyle: TextStyle(
           color: Colors.grey.shade700,
@@ -321,13 +321,13 @@ class AppTheme {
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryGreen,
         primary: accentMint, // Lighter green for dark theme
-        secondary: Color(0xFF64B5F6), // Lighter blue for dark theme
+        secondary: const Color(0xFF64B5F6), // Lighter blue for dark theme
         tertiary: accentMint.withValues(alpha: 0.7),
-        error: Color(0xFFEF5350), // Brighter error for dark theme
-        surface: Color(0xFF121212),
+        error: const Color(0xFFEF5350), // Brighter error for dark theme
+        surface: const Color(0xFF121212),
         brightness: Brightness.dark,
       ),
-      scaffoldBackgroundColor: Color(0xFF121212),
+      scaffoldBackgroundColor: const Color(0xFF121212),
       textTheme: GoogleFonts.interTextTheme(baseTheme.textTheme).copyWith(
         displayLarge: GoogleFonts.manrope(
           fontSize: 32,
@@ -393,7 +393,7 @@ class AppTheme {
         ),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: Color(0xFF1E1E1E),
+        backgroundColor: const Color(0xFF1E1E1E),
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
@@ -408,7 +408,7 @@ class AppTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: Color(0xFF1E1E1E),
+        backgroundColor: const Color(0xFF1E1E1E),
         indicatorColor: accentMint.withValues(alpha: 0.2),
         labelTextStyle: WidgetStateProperty.all(
           GoogleFonts.inter(
@@ -432,7 +432,7 @@ class AppTheme {
         clipBehavior: Clip.antiAliasWithSaveLayer,
         elevation: 4,
         shadowColor: Colors.black87,
-        color: Color(0xFF242424),
+        color: const Color(0xFF242424),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
@@ -449,7 +449,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Color(0xFF2C2C2C),
+        fillColor: const Color(0xFF2C2C2C),
         contentPadding: const EdgeInsets.all(16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -547,7 +547,7 @@ class AppTheme {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: Color(0xFF3A3A3A),
+        backgroundColor: const Color(0xFF3A3A3A),
         labelStyle: TextStyle(
           color: Colors.white.withValues(alpha: 0.9),
           fontWeight: FontWeight.w500,
@@ -591,7 +591,7 @@ class AppTheme {
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: Color(0xFF242424),
+        backgroundColor: const Color(0xFF242424),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),

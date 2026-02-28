@@ -777,10 +777,10 @@ class _ReportsScreenState extends State<ReportsScreen>
             ),
             titlesData: FlTitlesData(
               show: true,
-              rightTitles: AxisTitles(
+              rightTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false),
               ),
-              topTitles: AxisTitles(
+              topTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false),
               ),
               bottomTitles: AxisTitles(
@@ -928,11 +928,11 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  Widget _buildLineChart(BuildContext context, List<Transaction> transactions) {
-    // Group transactions by date and calculate daily income totals
+  /// Aggregates daily income totals from the given transactions over the last 30 days.
+  /// Returns a map of normalized dates to their income totals.
+  Map<DateTime, double> _aggregateDailyIncomes(
+      List<Transaction> transactions) {
     final Map<DateTime, double> dailyIncomes = {};
-
-    // Get start and end dates for the range
     final startDate = DateTime.now().subtract(const Duration(days: 30));
     final endDate = DateTime.now();
 
@@ -955,38 +955,181 @@ class _ReportsScreenState extends State<ReportsScreen>
       }
     }
 
-    // Find the max value for better scaling
+    return dailyIncomes;
+  }
+
+  /// Computes the chart's maxY value from daily income data,
+  /// defaulting to 100 if all values are zero and adding 20% padding.
+  double _computeMaxY(Map<DateTime, double> dailyIncomes) {
     double maxValue = 0;
     for (final amount in dailyIncomes.values) {
       if (amount > maxValue) {
         maxValue = amount;
       }
     }
-
-    // If all values are 0, set max to 100 to avoid empty chart
     if (maxValue == 0) {
       maxValue = 100;
     }
+    return maxValue * 1.2;
+  }
 
-    // Add some padding to the top
-    maxValue = maxValue * 1.2;
+  /// Builds the FlTitlesData configuration for the line chart.
+  FlTitlesData _buildLineChartTitles(
+    List<DateTime> sortedDates,
+    int labelInterval,
+    double yLabelInterval,
+  ) {
+    return FlTitlesData(
+      show: true,
+      rightTitles:
+          const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      topTitles:
+          const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      bottomTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 30,
+          interval: math.max(1.0, 1),
+          getTitlesWidget: (double value, TitleMeta meta) {
+            final index = value.toInt();
+            if (index % labelInterval != 0) {
+              return const SizedBox.shrink();
+            }
+            if (index >= 0 && index < sortedDates.length) {
+              final date = sortedDates[index];
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  DateFormat('dd/MM').format(date),
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+      leftTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 46,
+          interval: math.max(0.1, yLabelInterval),
+          getTitlesWidget: (double value, TitleMeta meta) {
+            if (value == 0) {
+              return const SizedBox.shrink();
+            }
+            return Text(
+              CurrencyFormatter.formatWithContext(
+                  context, value.toInt().toDouble()),
+              style: const TextStyle(
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-    // Sort dates and create spot data
+  /// Builds the tooltip configuration for the line chart.
+  LineTouchData _buildLineChartTooltip(List<DateTime> sortedDates) {
+    return LineTouchData(
+      touchTooltipData: LineTouchTooltipData(
+        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
+          return touchedBarSpots.map((barSpot) {
+            final index = barSpot.x.toInt();
+            final date = index >= 0 && index < sortedDates.length
+                ? DateFormat('MMM d').format(sortedDates[index])
+                : '';
+            return LineTooltipItem(
+              '$date: ${CurrencyFormatter.formatWithContext(context, barSpot.y)}',
+              const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            );
+          }).toList();
+        },
+      ),
+    );
+  }
+
+  /// Builds the line bar data (dots, curve, fill) for the line chart.
+  LineChartBarData _buildLineBarData(List<FlSpot> spots, int labelInterval) {
+    return LineChartBarData(
+      spots: spots,
+      isCurved: true,
+      curveSmoothness: 0.3,
+      color: Colors.green,
+      barWidth: 3,
+      isStrokeCapRound: true,
+      dotData: FlDotData(
+        show: true,
+        getDotPainter: (spot, percent, barData, index) {
+          return FlDotCirclePainter(
+            radius: 4,
+            color: Colors.white,
+            strokeWidth: 2,
+            strokeColor: Colors.green,
+          );
+        },
+        checkToShowDot: (spot, barData) {
+          return spot.x.toInt() % labelInterval == 0 || spot.y > 0;
+        },
+      ),
+      belowBarData: BarAreaData(
+        show: true,
+        color: Colors.green.withValues(alpha: 26),
+      ),
+    );
+  }
+
+  Widget _buildLineChartLegend() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.green,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'Daily Income',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineChart(BuildContext context, List<Transaction> transactions) {
+    final dailyIncomes = _aggregateDailyIncomes(transactions);
+    final maxValue = _computeMaxY(dailyIncomes);
     final sortedDates = dailyIncomes.keys.toList()..sort();
+    final labelInterval = math.max(1, (sortedDates.length / 5).round());
+    final yLabelInterval = math.max(0.1, (maxValue / 4).roundToDouble());
 
-    // Show dates at reasonable intervals (5-6 labels)
-    final interval = math.max(1, (sortedDates.length / 5).round());
-
-    // Create the spots for the line chart
     final spots = <FlSpot>[];
     for (int i = 0; i < sortedDates.length; i++) {
-      final date = sortedDates[i];
-      final amount = dailyIncomes[date] ?? 0;
-      spots.add(FlSpot(i.toDouble(), amount));
+      spots.add(FlSpot(i.toDouble(), dailyIncomes[sortedDates[i]] ?? 0));
     }
-
-    // Calculate appropriate interval for y-axis labels
-    final yLabelInterval = math.max(0.1, (maxValue / 4).roundToDouble());
 
     return Container(
       margin: const EdgeInsets.only(top: 12, bottom: 8, right: 12),
@@ -1006,154 +1149,28 @@ class _ReportsScreenState extends State<ReportsScreen>
                     );
                   },
                 ),
-                titlesData: FlTitlesData(
-                  show: true,
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: math.max(1.0, 1),
-                      getTitlesWidget: (double value, TitleMeta meta) {
-                        final index = value.toInt();
-                        // Only show dates at intervals
-                        if (index % interval != 0) {
-                          return const SizedBox.shrink();
-                        }
-                        if (index >= 0 && index < sortedDates.length) {
-                          final date = sortedDates[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8.0),
-                            child: Text(
-                              DateFormat('dd/MM').format(date),
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 10,
-                              ),
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      },
-                    ),
-                  ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 46,
-                      interval: math.max(0.1, yLabelInterval),
-                      getTitlesWidget: (double value, TitleMeta meta) {
-                        if (value == 0) {
-                          return const SizedBox.shrink();
-                        }
-                        return Text(
-                          CurrencyFormatter.formatWithContext(
-                              context, value.toInt().toDouble()),
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
+                titlesData: _buildLineChartTitles(
+                    sortedDates, labelInterval, yLabelInterval),
                 borderData: FlBorderData(
                   show: true,
                   border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+                    bottom:
+                        BorderSide(color: Colors.grey.shade300, width: 1),
                     left: BorderSide(color: Colors.grey.shade300, width: 1),
                   ),
                 ),
                 minX: 0,
                 maxX: (sortedDates.length - 1).toDouble(),
-                minY: 0, // Always start at 0 for income
+                minY: 0,
                 maxY: maxValue,
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
-                      return touchedBarSpots.map((barSpot) {
-                        final index = barSpot.x.toInt();
-                        final date = index >= 0 && index < sortedDates.length
-                            ? DateFormat('MMM d').format(sortedDates[index])
-                            : '';
-                        return LineTooltipItem(
-                          '$date: ${CurrencyFormatter.formatWithContext(context, barSpot.y)}',
-                          const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        );
-                      }).toList();
-                    },
-                  ),
-                ),
+                lineTouchData: _buildLineChartTooltip(sortedDates),
                 lineBarsData: [
-                  LineChartBarData(
-                    spots: spots,
-                    isCurved: true,
-                    curveSmoothness: 0.3,
-                    color: Colors.green,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (spot, percent, barData, index) {
-                        return FlDotCirclePainter(
-                          radius: 4,
-                          color: Colors.white,
-                          strokeWidth: 2,
-                          strokeColor: Colors.green,
-                        );
-                      },
-                      checkToShowDot: (spot, barData) {
-                        // Only show dots at interval points or for non-zero values
-                        return spot.x.toInt() % interval == 0 || spot.y > 0;
-                      },
-                    ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      color: Colors.green.withValues(alpha: 26),
-                    ),
-                  ),
+                  _buildLineBarData(spots, labelInterval),
                 ],
               ),
             ),
           ),
-          // Legend
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                const Text(
-                  'Daily Income',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildLineChartLegend(),
         ],
       ),
     );

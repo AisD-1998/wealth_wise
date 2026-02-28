@@ -104,41 +104,7 @@ class _TransactionFormState extends State<TransactionForm> {
       logger.fine('Transaction goal ID: ${widget.transaction!.goalId}');
       logger.fine('Contribution percentage: $_contributionPercentage');
 
-      // Initialize saving goal fields if this is an income transaction with a goalId
-      if (widget.transaction!.type == TransactionType.income) {
-        if (widget.transaction!.goalId != null &&
-            widget.transaction!.goalId!.isNotEmpty) {
-          _saveToSavingsGoal = true;
-          logger.fine(
-              'Setting _saveToSavingsGoal to true for goal ID: ${widget.transaction!.goalId}');
-
-          // We'll load the actual SavingGoal object when the widget is built
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (mounted) {
-              final financeProvider =
-                  Provider.of<FinanceProvider>(context, listen: false);
-              final goalId = widget.transaction!.goalId!;
-              logger.fine('Fetching saving goal with ID: $goalId');
-              final goal = await financeProvider.getSavingGoalById(goalId);
-
-              if (mounted && goal != null) {
-                logger.fine('Found goal: ${goal.title} with ID: ${goal.id}');
-                setState(() {
-                  _selectedSavingGoal = goal;
-                });
-              } else {
-                logger.fine('Goal not found with ID: $goalId');
-              }
-            }
-          });
-        } else {
-          // Ensure saving goal is disabled if transaction is income but has no goal
-          _saveToSavingsGoal = false;
-          _selectedSavingGoal = null;
-          logger.fine(
-              'Income transaction has no goal, _saveToSavingsGoal set to false');
-        }
-      }
+      _loadGoalsForEditing();
     } else if (widget.initialType != null) {
       _selectedType = widget.initialType!;
       logger.fine('New transaction with initial type: $_selectedType');
@@ -151,6 +117,50 @@ class _TransactionFormState extends State<TransactionForm> {
           Provider.of<CategoryProvider>(context, listen: false);
       if (authProvider.user != null) {
         categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
+      }
+    });
+  }
+
+  /// Loads saving goal data when editing an existing income transaction
+  /// that has a goalId associated with it.
+  void _loadGoalsForEditing() {
+    if (widget.transaction!.type != TransactionType.income) {
+      return;
+    }
+
+    final hasGoal = widget.transaction!.goalId != null &&
+        widget.transaction!.goalId!.isNotEmpty;
+
+    if (!hasGoal) {
+      // Ensure saving goal is disabled if transaction is income but has no goal
+      _saveToSavingsGoal = false;
+      _selectedSavingGoal = null;
+      logger.fine(
+          'Income transaction has no goal, _saveToSavingsGoal set to false');
+      return;
+    }
+
+    _saveToSavingsGoal = true;
+    logger.fine(
+        'Setting _saveToSavingsGoal to true for goal ID: ${widget.transaction!.goalId}');
+
+    // Load the actual SavingGoal object when the widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      final financeProvider =
+          Provider.of<FinanceProvider>(context, listen: false);
+      final goalId = widget.transaction!.goalId!;
+      logger.fine('Fetching saving goal with ID: $goalId');
+      final goal = await financeProvider.getSavingGoalById(goalId);
+
+      if (mounted && goal != null) {
+        logger.fine('Found goal: ${goal.title} with ID: ${goal.id}');
+        setState(() {
+          _selectedSavingGoal = goal;
+        });
+      } else {
+        logger.fine('Goal not found with ID: $goalId');
       }
     });
   }
@@ -185,125 +195,139 @@ class _TransactionFormState extends State<TransactionForm> {
     );
   }
 
+  /// Validates the form and returns true if valid.
+  bool _validateForm() {
+    return _formKey.currentState!.validate();
+  }
+
+  /// Builds the Transaction object from current form state.
+  Transaction _buildTransaction(String userId) {
+    final amount = double.parse(_amountController.text);
+    final transactionType = _selectedType;
+    final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
+
+    final String? goalIdToUse =
+        transactionType == TransactionType.income && selectedGoal != null
+            ? selectedGoal.id
+            : null;
+
+    logger.fine('FINAL GOAL ID TO USE: $goalIdToUse');
+
+    return Transaction(
+      id: widget.transaction?.id,
+      userId: userId,
+      amount: amount,
+      date: _selectedDate,
+      title: _titleController.text.trim(),
+      type: transactionType,
+      category: _selectedCategory,
+      goalId: goalIdToUse,
+      note: _noteController.text.trim(),
+      contributionPercentage:
+          _saveToSavingsGoal ? _contributionPercentage : null,
+      isRecurring: _isRecurring,
+      recurrencePattern: _isRecurring ? _recurrencePattern : null,
+      recurrenceEndDate: _isRecurring ? _recurrenceEndDate : null,
+    );
+  }
+
+  /// Handles persisting the transaction (create or update) and goal
+  /// contribution logic. Returns true on success.
+  Future<bool> _handleGoalContribution(
+    FinanceProvider financeProvider,
+    Transaction transaction,
+  ) async {
+    final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
+
+    if (widget.transaction != null) {
+      // Updating existing transaction
+      logger.fine(
+          'Updating existing transaction with ID: ${widget.transaction!.id}');
+      logger.fine('Previous goal ID: ${widget.transaction!.goalId}');
+      logger.fine('New goal ID: ${transaction.goalId}');
+      final result = await financeProvider.updateTransaction(transaction);
+      return result['success'] ?? false;
+    }
+
+    // Creating new transaction
+    logger.fine('Creating new transaction');
+    if (transaction.type == TransactionType.income && selectedGoal != null) {
+      logger.fine(
+          'Using addTransactionWithGoal method with goal ID: ${selectedGoal.id}');
+      return await financeProvider.addTransactionWithGoal(
+          transaction, selectedGoal);
+    }
+
+    logger.fine('Using regular addTransaction method (no goal)');
+    return await financeProvider.addTransaction(transaction);
+  }
+
   Future<void> _saveTransaction() async {
-    if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
+    if (!_validateForm()) return;
 
-      setState(() => _isLoading = true);
+    _formKey.currentState!.save();
+    setState(() => _isLoading = true);
 
-      try {
-        final userId = context.read<AuthProvider>().user?.uid;
-        if (userId == null) {
-          _showError('User ID not found. Please log in.');
-          setState(() => _isLoading = false);
-          return;
+    try {
+      final userId = context.read<AuthProvider>().user?.uid;
+      if (userId == null) {
+        _showError('User ID not found. Please log in.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
+
+      // Enhanced logging for debugging
+      logger.fine('===== TRANSACTION SAVE DETAILS =====');
+      logger.fine('Title: ${_titleController.text.trim()}');
+      logger.fine('Amount: ${_amountController.text}');
+      logger.fine('Type: $_selectedType');
+      logger.fine('Category: $_selectedCategory');
+      logger.fine('Save to goal: $_saveToSavingsGoal');
+
+      if (selectedGoal != null) {
+        logger.fine('Selected goal for contribution:');
+        logger.fine('- Title: ${selectedGoal.title}');
+        logger.fine('- ID: ${selectedGoal.id}');
+        logger.fine('- Current Amount: ${selectedGoal.currentAmount}');
+        logger.fine('- Target Amount: ${selectedGoal.targetAmount}');
+      } else {
+        logger.fine('No goal selected for this transaction');
+      }
+
+      final transaction = _buildTransaction(userId);
+      logger.fine('Transaction object goal ID: ${transaction.goalId}');
+      logger.fine('===============================');
+
+      final financeProvider =
+          Provider.of<FinanceProvider>(context, listen: false);
+      final success =
+          await _handleGoalContribution(financeProvider, transaction);
+
+      if (success) {
+        if (mounted && widget.onComplete != null) {
+          widget.onComplete!(true);
         }
-
-        final amount = double.parse(_amountController.text);
-        final transactionType = _selectedType;
-        final selectedCategory = _selectedCategory;
-        final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
-
-        // Enhanced logging for debugging
-        logger.fine('===== TRANSACTION SAVE DETAILS =====');
-        logger.fine('Title: ${_titleController.text.trim()}');
-        logger.fine('Amount: $amount');
-        logger.fine('Type: $transactionType');
-        logger.fine('Category: $selectedCategory');
-        logger.fine('Save to goal: $_saveToSavingsGoal');
-
-        if (selectedGoal != null) {
-          logger.fine('Selected goal for contribution:');
-          logger.fine('- Title: ${selectedGoal.title}');
-          logger.fine('- ID: ${selectedGoal.id}');
-          logger.fine('- Current Amount: ${selectedGoal.currentAmount}');
-          logger.fine('- Target Amount: ${selectedGoal.targetAmount}');
-        } else {
-          logger.fine('No goal selected for this transaction');
+        if (mounted) {
+          Navigator.of(context).pop();
         }
-
-        final String? goalIdToUse =
-            transactionType == TransactionType.income && selectedGoal != null
-                ? selectedGoal.id
-                : null;
-
-        logger.fine('FINAL GOAL ID TO USE: $goalIdToUse');
-
-        final transaction = Transaction(
-          id: widget.transaction?.id,
-          userId: userId,
-          amount: amount,
-          date: _selectedDate,
-          title: _titleController.text.trim(),
-          type: transactionType,
-          category: selectedCategory,
-          // Only set goalId for income transactions with selected goal
-          goalId: goalIdToUse,
-          note: _noteController.text.trim(),
-          contributionPercentage:
-              _saveToSavingsGoal ? _contributionPercentage : null,
-          isRecurring: _isRecurring,
-          recurrencePattern: _isRecurring ? _recurrencePattern : null,
-          recurrenceEndDate: _isRecurring ? _recurrenceEndDate : null,
-        );
-
-        logger.fine('Transaction object goal ID: ${transaction.goalId}');
-        logger.fine('===============================');
-
-        bool success = false;
-        final financeProvider =
-            Provider.of<FinanceProvider>(context, listen: false);
-
-        // Handle case where transaction is being edited
-        if (widget.transaction != null) {
-          logger.fine(
-              'Updating existing transaction with ID: ${widget.transaction!.id}');
-          logger.fine('Previous goal ID: ${widget.transaction!.goalId}');
-          logger.fine('New goal ID: ${transaction.goalId}');
-          final result = await financeProvider.updateTransaction(transaction);
-          success = result['success'] ?? false;
-        }
-        // Handle case for new transaction
-        else {
-          logger.fine('Creating new transaction');
-          if (transactionType == TransactionType.income &&
-              selectedGoal != null) {
-            // Use the specialized method for transactions with goals
-            logger.fine(
-                'Using addTransactionWithGoal method with goal ID: ${selectedGoal.id}');
-            success = await financeProvider.addTransactionWithGoal(
-                transaction, selectedGoal);
-          } else {
-            // Use regular method for transactions without goals
-            logger.fine('Using regular addTransaction method (no goal)');
-            success = await financeProvider.addTransaction(transaction);
-          }
-        }
-
-        if (success) {
-          if (mounted && widget.onComplete != null) {
-            widget.onComplete!(true);
-          }
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
-        } else {
-          final error = financeProvider.error ?? 'Failed to save transaction';
-          _showError(error);
-          if (mounted && widget.onComplete != null) {
-            widget.onComplete!(false);
-          }
-        }
-      } catch (e) {
-        logger.fine('Error saving transaction: $e');
-        _showError(e.toString());
+      } else {
+        final error = financeProvider.error ?? 'Failed to save transaction';
+        _showError(error);
         if (mounted && widget.onComplete != null) {
           widget.onComplete!(false);
         }
-      } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
+      }
+    } catch (e) {
+      logger.fine('Error saving transaction: $e');
+      _showError(e.toString());
+      if (mounted && widget.onComplete != null) {
+        widget.onComplete!(false);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -321,6 +345,546 @@ class _TransactionFormState extends State<TransactionForm> {
         _selectedDate = pickedDate;
       });
     }
+  }
+
+  Widget _buildSubmitButtonChild() {
+    if (_isLoading) {
+      return SizedBox(
+        height: 20,
+        width: 20,
+        child: LoadingAnimationUtils.smallDollarSpinner(
+          size: 20,
+          primaryColor: Colors.white,
+        ),
+      );
+    }
+    final label =
+        widget.transaction == null ? 'Add Transaction' : 'Update Transaction';
+    return Text(label);
+  }
+
+  String _appBarTitle() {
+    if (widget.transaction != null) return 'Edit Transaction';
+    final typeLabel =
+        _selectedType == TransactionType.income ? 'Income' : 'Expense';
+    return 'Add $typeLabel';
+  }
+
+  List<DropdownMenuItem<String>> _buildCategoryDropdownItems(
+      List<String> availableCategories) {
+    if (availableCategories.isNotEmpty) {
+      return availableCategories
+          .map((name) => DropdownMenuItem<String>(
+                value: name,
+                child: Text(name),
+              ))
+          .toList();
+    }
+    final List<String> defaults;
+    if (_selectedType == TransactionType.income) {
+      defaults = ['Salary', 'Investments', 'Gifts', 'Other Income'];
+    } else {
+      defaults = [
+        'Food & Groceries',
+        'Transportation',
+        'Entertainment',
+        'Utilities',
+        'Housing',
+        'Health',
+        'Shopping',
+        'Education',
+        'Other',
+      ];
+    }
+    return defaults
+        .map((name) => DropdownMenuItem<String>(
+              value: name,
+              child: Text(name),
+            ))
+        .toList();
+  }
+
+  String _contributionSummaryText() {
+    if (_amountController.text.isEmpty) {
+      return 'Enter an amount to contribute';
+    }
+    if (_contributionPercentage < 100) {
+      final amount =
+          (double.tryParse(_amountController.text) ?? 0) *
+              _contributionPercentage /
+              100;
+      return 'Contributing ${_contributionPercentage.toStringAsFixed(0)}% (\$${amount.toStringAsFixed(2)}) to "${_selectedSavingGoal!.title}"';
+    }
+    return 'Contributing \$${double.tryParse(_amountController.text)?.toStringAsFixed(2) ?? "0.00"} to "${_selectedSavingGoal!.title}"';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Extracted widget-building methods
+  // ---------------------------------------------------------------------------
+
+  Widget _buildTypeSelector() {
+    return Center(
+      child: SegmentedButton<TransactionType>(
+        segments: const [
+          ButtonSegment<TransactionType>(
+            value: TransactionType.income,
+            label: Text('Income'),
+            icon: Icon(Icons.arrow_upward),
+          ),
+          ButtonSegment<TransactionType>(
+            value: TransactionType.expense,
+            label: Text('Expense'),
+            icon: Icon(Icons.arrow_downward),
+          ),
+        ],
+        selected: {_selectedType},
+        onSelectionChanged: (Set<TransactionType> selected) {
+          setState(() {
+            _selectedType = selected.first;
+            _selectedCategory = null;
+            // Clear saving goal selection if type is changed to expense
+            if (_selectedType == TransactionType.expense) {
+              _saveToSavingsGoal = false;
+              _selectedSavingGoal = null;
+            }
+          });
+        },
+      ),
+    );
+  }
+
+  Widget _buildTitleField() {
+    return TextFormField(
+      controller: _titleController,
+      decoration: const InputDecoration(
+        labelText: 'Description',
+        hintText: 'What is this transaction for?',
+        prefixIcon: Icon(Icons.subject),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter a description';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildAmountField() {
+    return TextFormField(
+      controller: _amountController,
+      decoration: const InputDecoration(
+        labelText: 'Amount',
+        hintText: 'Enter amount',
+        prefixIcon: Icon(Icons.attach_money),
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter an amount';
+        }
+        if (double.tryParse(value) == null) {
+          return 'Please enter a valid number';
+        }
+        if (double.parse(value) <= 0) {
+          return 'Amount must be greater than 0';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildCategoryDropdown(List<String> availableCategories) {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedCategory,
+      decoration: const InputDecoration(
+        labelText: 'Category',
+        hintText: 'Select category',
+        prefixIcon: Icon(Icons.category),
+      ),
+      items: _buildCategoryDropdownItems(availableCategories),
+      onChanged: (value) {
+        setState(() {
+          _selectedCategory = value;
+        });
+      },
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select a category';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildDatePicker() {
+    return InkWell(
+      onTap: _pickDate,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Date',
+          prefixIcon: Icon(Icons.calendar_today),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(DateFormat('MMM dd, yyyy').format(_selectedDate)),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotesField() {
+    return TextFormField(
+      controller: _noteController,
+      decoration: const InputDecoration(
+        labelText: 'Notes (Optional)',
+        hintText: 'Additional details',
+        prefixIcon: Icon(Icons.note),
+      ),
+      maxLines: 2,
+    );
+  }
+
+  List<Widget> _buildRecurringSection(ThemeData theme) {
+    return [
+      const SizedBox(height: 8),
+      SwitchListTile(
+        title: const Text('Recurring Transaction'),
+        subtitle: Text(
+          _isRecurring
+              ? 'Repeats ${_recurrencePattern.label.toLowerCase()}'
+              : 'One-time transaction',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+        value: _isRecurring,
+        secondary: Icon(
+          Icons.repeat,
+          color: _isRecurring ? theme.colorScheme.primary : Colors.grey,
+        ),
+        onChanged: (value) {
+          setState(() {
+            _isRecurring = value;
+          });
+        },
+        contentPadding: EdgeInsets.zero,
+      ),
+      if (_isRecurring) ...[
+        const SizedBox(height: 8),
+        DropdownButtonFormField<RecurrencePattern>(
+          initialValue: _recurrencePattern,
+          decoration: const InputDecoration(
+            labelText: 'Frequency',
+            prefixIcon: Icon(Icons.schedule),
+          ),
+          items: RecurrencePattern.values
+              .map((p) => DropdownMenuItem(
+                    value: p,
+                    child: Text(p.label),
+                  ))
+              .toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() {
+                _recurrencePattern = value;
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        _buildRecurrenceEndDatePicker(),
+      ],
+    ];
+  }
+
+  Widget _buildRecurrenceEndDatePicker() {
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: _recurrenceEndDate ??
+              DateTime.now().add(const Duration(days: 365)),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 3650)),
+        );
+        if (picked != null) {
+          setState(() {
+            _recurrenceEndDate = picked;
+          });
+        }
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'End Date (Optional)',
+          prefixIcon: const Icon(Icons.event_busy),
+          suffixIcon: _recurrenceEndDate != null
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    setState(() {
+                      _recurrenceEndDate = null;
+                    });
+                  },
+                )
+              : null,
+        ),
+        child: Text(
+          _recurrenceEndDate != null
+              ? DateFormat('MMM dd, yyyy').format(_recurrenceEndDate!)
+              : 'No end date (repeats forever)',
+          style: TextStyle(
+            color: _recurrenceEndDate != null ? null : Colors.grey[600],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildSavingGoalSection(List<SavingGoal> savingGoals) {
+    if (_selectedType != TransactionType.income) {
+      return [];
+    }
+
+    return [
+      const SizedBox(height: 16),
+      CheckboxListTile(
+        title: const Text('Save to Saving Goal'),
+        value: _saveToSavingsGoal,
+        onChanged: savingGoals.isEmpty
+            ? null // Disable if no goals available
+            : (value) {
+                setState(() {
+                  _saveToSavingsGoal = value ?? false;
+
+                  // If turning off, clear selected goal
+                  if (!_saveToSavingsGoal) {
+                    _selectedSavingGoal = null;
+                  }
+                });
+              },
+        controlAffinity: ListTileControlAffinity.leading,
+        subtitle: savingGoals.isEmpty
+            ? const Text(
+                'Create a saving goal first to enable this option',
+                style: TextStyle(color: Colors.grey, fontSize: 12))
+            : null,
+      ),
+      if (_saveToSavingsGoal && savingGoals.isNotEmpty)
+        ..._buildGoalDropdownAndDetails(savingGoals),
+    ];
+  }
+
+  List<Widget> _buildGoalDropdownAndDetails(List<SavingGoal> savingGoals) {
+    return [
+      const SizedBox(height: 8),
+      DropdownButtonFormField<SavingGoal?>(
+        decoration: const InputDecoration(
+          labelText: 'Saving Goal',
+          border: OutlineInputBorder(),
+          filled: true,
+          prefixIcon: Icon(Icons.savings),
+        ),
+        initialValue: _selectedSavingGoal,
+        items: [
+          const DropdownMenuItem<SavingGoal?>(
+            value: null,
+            child: Text('None'),
+          ),
+          ...savingGoals.map((goal) {
+            final isCompleted = goal.isCompleted;
+            return DropdownMenuItem<SavingGoal?>(
+              value: goal,
+              child: Row(
+                children: [
+                  Text(goal.title),
+                  const SizedBox(width: 8),
+                  Text(
+                    '(${(goal.currentAmount / goal.targetAmount * 100).toStringAsFixed(0)}%)',
+                    style: TextStyle(
+                      color: isCompleted ? Colors.green : Colors.grey,
+                      fontWeight:
+                          isCompleted ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (isCompleted) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.check_circle,
+                        color: Colors.green, size: 14)
+                  ]
+                ],
+              ),
+            );
+          })
+        ],
+        onChanged: (value) {
+          setState(() {
+            _selectedSavingGoal = value;
+            logger.fine(
+                'GOAL SELECTED: ${value?.title} (ID: ${value?.id})');
+            if (value != null) {
+              logger.fine('SELECTED GOAL DETAILS:');
+              logger.fine('- Title: ${value.title}');
+              logger.fine('- ID: ${value.id}');
+              logger.fine('- Current Amount: ${value.currentAmount}');
+              logger.fine('- Target Amount: ${value.targetAmount}');
+              logger.fine('- Is Completed: ${value.isCompleted}');
+              _saveToSavingsGoal = true;
+            }
+          });
+        },
+      ),
+      if (_selectedSavingGoal != null) ...[
+        _buildGoalProgressInfo(),
+        _buildContributionPercentageSlider(),
+        _buildContributionSummary(),
+      ],
+    ];
+  }
+
+  Widget _buildGoalProgressInfo() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            color: _selectedSavingGoal!.isCompleted
+                ? Colors.orange
+                : Colors.green,
+            size: 16,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _selectedSavingGoal!.isCompleted
+                  ? 'Goal already completed (${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)})'
+                  : 'Current progress: ${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)}',
+              style: TextStyle(
+                color: _selectedSavingGoal!.isCompleted
+                    ? Colors.orange
+                    : Colors.green,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContributionPercentageSlider() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, bottom: 4.0),
+            child: Text(
+              'Contribution Percentage: ${_contributionPercentage.toStringAsFixed(0)}%',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: _contributionPercentage,
+                  min: 1,
+                  max: 100,
+                  divisions: 20,
+                  label:
+                      '${_contributionPercentage.toStringAsFixed(0)}%',
+                  onChanged: (value) {
+                    setState(() {
+                      _contributionPercentage = value;
+                      _percentageController.text =
+                          value.toStringAsFixed(0);
+                    });
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 60,
+                child: TextFormField(
+                  controller: _percentageController,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  decoration: const InputDecoration(
+                    suffixText: '%',
+                    contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 8),
+                    isDense: true,
+                  ),
+                  onChanged: (value) {
+                    final percentage = int.tryParse(value);
+                    if (percentage != null &&
+                        percentage > 0 &&
+                        percentage <= 100) {
+                      setState(() {
+                        _contributionPercentage =
+                            percentage.toDouble();
+                      });
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContributionSummary() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+      child: Row(
+        children: [
+          Icon(
+            _selectedSavingGoal!.isCompleted
+                ? Icons.warning
+                : Icons.check_circle,
+            color: _selectedSavingGoal!.isCompleted
+                ? Colors.orange
+                : Colors.green,
+            size: 16,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _contributionSummaryText(),
+              style: TextStyle(
+                color: _selectedSavingGoal!.isCompleted
+                    ? Colors.orange
+                    : Colors.green,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: _isLoading ? null : _saveTransaction,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: _buildSubmitButtonChild(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -350,11 +914,7 @@ class _TransactionFormState extends State<TransactionForm> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
-          widget.transaction != null
-              ? 'Edit Transaction'
-              : 'Add ${_selectedType == TransactionType.income ? 'Income' : 'Expense'}',
-        ),
+        title: Text(_appBarTitle()),
         actions: [
           if (_selectedType == TransactionType.income &&
               savingGoals.isNotEmpty &&
@@ -406,507 +966,21 @@ class _TransactionFormState extends State<TransactionForm> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Type Selector
-                Center(
-                  child: SegmentedButton<TransactionType>(
-                    segments: const [
-                      ButtonSegment<TransactionType>(
-                        value: TransactionType.income,
-                        label: Text('Income'),
-                        icon: Icon(Icons.arrow_upward),
-                      ),
-                      ButtonSegment<TransactionType>(
-                        value: TransactionType.expense,
-                        label: Text('Expense'),
-                        icon: Icon(Icons.arrow_downward),
-                      ),
-                    ],
-                    selected: {_selectedType},
-                    onSelectionChanged: (Set<TransactionType> selected) {
-                      setState(() {
-                        _selectedType = selected.first;
-                        _selectedCategory = null;
-                        // Clear saving goal selection if type is changed to expense
-                        if (_selectedType == TransactionType.expense) {
-                          _saveToSavingsGoal = false;
-                          _selectedSavingGoal = null;
-                        }
-                      });
-                    },
-                  ),
-                ),
+                _buildTypeSelector(),
                 const SizedBox(height: 24),
-
-                // Title
-                TextFormField(
-                  controller: _titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    hintText: 'What is this transaction for?',
-                    prefixIcon: Icon(Icons.subject),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a description';
-                    }
-                    return null;
-                  },
-                ),
+                _buildTitleField(),
                 const SizedBox(height: 16),
-
-                // Amount
-                TextFormField(
-                  controller: _amountController,
-                  decoration: const InputDecoration(
-                    labelText: 'Amount',
-                    hintText: 'Enter amount',
-                    prefixIcon: Icon(Icons.attach_money),
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter an amount';
-                    }
-                    if (double.tryParse(value) == null) {
-                      return 'Please enter a valid number';
-                    }
-                    if (double.parse(value) <= 0) {
-                      return 'Amount must be greater than 0';
-                    }
-                    return null;
-                  },
-                ),
+                _buildAmountField(),
                 const SizedBox(height: 16),
-
-                // Category
-                DropdownButtonFormField<String>(
-                  value: _selectedCategory,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    hintText: 'Select category',
-                    prefixIcon: Icon(Icons.category),
-                  ),
-                  items: availableCategories.isNotEmpty
-                      ? availableCategories.map((name) {
-                          return DropdownMenuItem<String>(
-                            value: name,
-                            child: Text(name),
-                          );
-                        }).toList()
-                      : _selectedType == TransactionType.income
-                          ? ['Salary', 'Investments', 'Gifts', 'Other Income']
-                              .map((name) => DropdownMenuItem<String>(
-                                    value: name,
-                                    child: Text(name),
-                                  ))
-                              .toList()
-                          : [
-                              'Food & Groceries',
-                              'Transportation',
-                              'Entertainment',
-                              'Utilities',
-                              'Housing',
-                              'Health',
-                              'Shopping',
-                              'Education',
-                              'Other'
-                            ]
-                              .map((name) => DropdownMenuItem<String>(
-                                    value: name,
-                                    child: Text(name),
-                                  ))
-                              .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedCategory = value;
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please select a category';
-                    }
-                    return null;
-                  },
-                ),
+                _buildCategoryDropdown(availableCategories),
                 const SizedBox(height: 16),
-
-                // Date
-                InkWell(
-                  onTap: _pickDate,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Date',
-                      prefixIcon: Icon(Icons.calendar_today),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(DateFormat('MMM dd, yyyy').format(_selectedDate)),
-                        const Icon(Icons.arrow_drop_down),
-                      ],
-                    ),
-                  ),
-                ),
+                _buildDatePicker(),
                 const SizedBox(height: 16),
-
-                // Notes
-                TextFormField(
-                  controller: _noteController,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (Optional)',
-                    hintText: 'Additional details',
-                    prefixIcon: Icon(Icons.note),
-                  ),
-                  maxLines: 2,
-                ),
-
-                // Recurring transaction toggle
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  title: const Text('Recurring Transaction'),
-                  subtitle: Text(
-                    _isRecurring
-                        ? 'Repeats ${_recurrencePattern.label.toLowerCase()}'
-                        : 'One-time transaction',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey[600]),
-                  ),
-                  value: _isRecurring,
-                  secondary: Icon(
-                    Icons.repeat,
-                    color:
-                        _isRecurring ? theme.colorScheme.primary : Colors.grey,
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _isRecurring = value;
-                    });
-                  },
-                  contentPadding: EdgeInsets.zero,
-                ),
-
-                if (_isRecurring) ...[
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<RecurrencePattern>(
-                    value: _recurrencePattern,
-                    decoration: const InputDecoration(
-                      labelText: 'Frequency',
-                      prefixIcon: Icon(Icons.schedule),
-                    ),
-                    items: RecurrencePattern.values
-                        .map((p) => DropdownMenuItem(
-                              value: p,
-                              child: Text(p.label),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _recurrencePattern = value;
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _recurrenceEndDate ??
-                            DateTime.now()
-                                .add(const Duration(days: 365)),
-                        firstDate: DateTime.now(),
-                        lastDate:
-                            DateTime.now().add(const Duration(days: 3650)),
-                      );
-                      if (picked != null) {
-                        setState(() {
-                          _recurrenceEndDate = picked;
-                        });
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: 'End Date (Optional)',
-                        prefixIcon: const Icon(Icons.event_busy),
-                        suffixIcon: _recurrenceEndDate != null
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  setState(() {
-                                    _recurrenceEndDate = null;
-                                  });
-                                },
-                              )
-                            : null,
-                      ),
-                      child: Text(
-                        _recurrenceEndDate != null
-                            ? DateFormat('MMM dd, yyyy')
-                                .format(_recurrenceEndDate!)
-                            : 'No end date (repeats forever)',
-                        style: TextStyle(
-                          color: _recurrenceEndDate != null
-                              ? null
-                              : Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-
-                // Only show saving goal options for income transactions
-                if (_selectedType == TransactionType.income) ...[
-                  const SizedBox(height: 16),
-                  CheckboxListTile(
-                    title: const Text('Save to Saving Goal'),
-                    value: _saveToSavingsGoal,
-                    onChanged: savingGoals.isEmpty
-                        ? null // Disable if no goals available
-                        : (value) {
-                            setState(() {
-                              _saveToSavingsGoal = value ?? false;
-
-                              // If turning off, clear selected goal
-                              if (!_saveToSavingsGoal) {
-                                _selectedSavingGoal = null;
-                              }
-                            });
-                          },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    subtitle: savingGoals.isEmpty
-                        ? const Text(
-                            'Create a saving goal first to enable this option',
-                            style: TextStyle(color: Colors.grey, fontSize: 12))
-                        : null,
-                  ),
-                  if (_saveToSavingsGoal && savingGoals.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<SavingGoal?>(
-                      decoration: const InputDecoration(
-                        labelText: 'Saving Goal',
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        prefixIcon: Icon(Icons.savings),
-                      ),
-                      value: _selectedSavingGoal,
-                      items: [
-                        const DropdownMenuItem<SavingGoal?>(
-                          value: null,
-                          child: Text('None'),
-                        ),
-                        ...savingGoals.map((goal) {
-                          // Show if goal is completed
-                          final isCompleted = goal.isCompleted;
-                          return DropdownMenuItem<SavingGoal?>(
-                            value: goal,
-                            child: Row(
-                              children: [
-                                Text(goal.title),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '(${(goal.currentAmount / goal.targetAmount * 100).toStringAsFixed(0)}%)',
-                                  style: TextStyle(
-                                    color: isCompleted
-                                        ? Colors.green
-                                        : Colors.grey,
-                                    fontWeight: isCompleted
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                if (isCompleted) ...[
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.check_circle,
-                                      color: Colors.green, size: 14)
-                                ]
-                              ],
-                            ),
-                          );
-                        })
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedSavingGoal = value;
-                          logger.fine(
-                              'GOAL SELECTED: ${value?.title} (ID: ${value?.id})');
-                          // Log all details of the selected goal
-                          if (value != null) {
-                            logger.fine('SELECTED GOAL DETAILS:');
-                            logger.fine('- Title: ${value.title}');
-                            logger.fine('- ID: ${value.id}');
-                            logger.fine(
-                                '- Current Amount: ${value.currentAmount}');
-                            logger.fine(
-                                '- Target Amount: ${value.targetAmount}');
-                            logger.fine('- Is Completed: ${value.isCompleted}');
-                            _saveToSavingsGoal = true;
-                          }
-                        });
-                      },
-                    ),
-                    if (_selectedSavingGoal != null) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0, left: 8.0),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: _selectedSavingGoal!.isCompleted
-                                  ? Colors.orange
-                                  : Colors.green,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _selectedSavingGoal!.isCompleted
-                                    ? 'Goal already completed (${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)})'
-                                    : 'Current progress: ${_selectedSavingGoal!.currentAmount.toStringAsFixed(2)}/${_selectedSavingGoal!.targetAmount.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  color: _selectedSavingGoal!.isCompleted
-                                      ? Colors.orange
-                                      : Colors.green,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Percentage slider for contribution
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding:
-                                  const EdgeInsets.only(left: 8.0, bottom: 4.0),
-                              child: Text(
-                                'Contribution Percentage: ${_contributionPercentage.toStringAsFixed(0)}%',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Slider(
-                                    value: _contributionPercentage,
-                                    min: 1,
-                                    max: 100,
-                                    divisions: 20,
-                                    label:
-                                        '${_contributionPercentage.toStringAsFixed(0)}%',
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _contributionPercentage = value;
-                                        _percentageController.text =
-                                            value.toStringAsFixed(0);
-                                      });
-                                    },
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 60,
-                                  child: TextFormField(
-                                    controller: _percentageController,
-                                    keyboardType: TextInputType.number,
-                                    textAlign: TextAlign.center,
-                                    decoration: const InputDecoration(
-                                      suffixText: '%',
-                                      contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      isDense: true,
-                                    ),
-                                    onChanged: (value) {
-                                      final percentage = int.tryParse(value);
-                                      if (percentage != null &&
-                                          percentage > 0 &&
-                                          percentage <= 100) {
-                                        setState(() {
-                                          _contributionPercentage =
-                                              percentage.toDouble();
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0, left: 8.0),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _selectedSavingGoal!.isCompleted
-                                  ? Icons.warning
-                                  : Icons.check_circle,
-                              color: _selectedSavingGoal!.isCompleted
-                                  ? Colors.orange
-                                  : Colors.green,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _amountController.text.isEmpty
-                                    ? 'Enter an amount to contribute'
-                                    : _contributionPercentage < 100
-                                        ? 'Contributing ${_contributionPercentage.toStringAsFixed(0)}% (\$${(double.tryParse(_amountController.text) ?? 0 * _contributionPercentage / 100).toStringAsFixed(2)}) to "${_selectedSavingGoal!.title}"'
-                                        : 'Contributing \$${double.tryParse(_amountController.text)?.toStringAsFixed(2) ?? "0.00"} to "${_selectedSavingGoal!.title}"',
-                                style: TextStyle(
-                                  color: _selectedSavingGoal!.isCompleted
-                                      ? Colors.orange
-                                      : Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ],
-
+                _buildNotesField(),
+                ..._buildRecurringSection(theme),
+                ..._buildSavingGoalSection(savingGoals),
                 const SizedBox(height: 24),
-
-                // Submit Button
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _isLoading ? null : _saveTransaction,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: _isLoading
-                          ? SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: LoadingAnimationUtils.smallDollarSpinner(
-                                size: 20,
-                                primaryColor: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              widget.transaction == null
-                                  ? 'Add Transaction'
-                                  : 'Update Transaction',
-                            ),
-                    ),
-                  ),
-                ),
+                _buildSubmitButton(),
               ],
             ),
           ),

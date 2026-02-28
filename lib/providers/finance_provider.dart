@@ -99,9 +99,9 @@ class FinanceProvider with ChangeNotifier {
 
   // Portfolio getters
   double get portfolioTotalValue =>
-      _investments.fold(0, (sum, inv) => sum + inv.totalValue);
+      _investments.fold(0, (total, inv) => total + inv.totalValue);
   double get portfolioTotalCost =>
-      _investments.fold(0, (sum, inv) => sum + inv.totalCost);
+      _investments.fold(0, (total, inv) => total + inv.totalCost);
 
   /// Bills that are upcoming (due within 7 days) or overdue, sorted by due date.
   List<BillReminder> get upcomingBills {
@@ -368,97 +368,87 @@ class FinanceProvider with ChangeNotifier {
     try {
       _logger.info('Fetching transactions for user: $_userId');
 
-      // Check if user has premium status
       final isPremium = await _checkPremiumStatus();
       _logger.info('User premium status: $isPremium');
 
-      // Direct Firestore query with more detailed error handling
-      try {
-        final collection =
-            FirebaseFirestore.instance.collection('transactions');
-        _logger.info('Collection reference created: ${collection.path}');
+      final snapshot = await _buildTransactionQuery(isPremium);
+      _transactions = _parseTransactionDocs(snapshot.docs, isPremium);
+      _transactions.sort((a, b) => b.date.compareTo(a.date));
 
-        // Check if collection exists
-        final collectionSnapshot = await collection.limit(1).get();
-        _logger
-            .info('Collection exists: ${collectionSnapshot.docs.isNotEmpty}');
-
-        // Build query
-        Query query = collection.where('userId', isEqualTo: _userId);
-
-        // For free users, limit to last 30 days if no date range is specified
-        if (!isPremium) {
-          final thirtyDaysAgo =
-              DateTime.now().subtract(const Duration(days: 30));
-          query = query.where('date',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(thirtyDaysAgo));
-          _logger.info('Free user: limiting transactions to last 30 days');
-        }
-
-        // Perform the query
-        final snapshot = await query.get();
+      if (_transactions.isEmpty) {
+        _logger.warning('No valid transactions found for user: $_userId');
+      } else {
         _logger.info(
-            'Retrieved ${snapshot.docs.length} transactions from database');
-
-        // Process query results
-        _transactions = [];
-
-        // For free users, limit to 50 transactions
-        final docsToProcess = !isPremium && snapshot.docs.length > 50
-            ? snapshot.docs.take(50).toList()
-            : snapshot.docs;
-
-        if (!isPremium && snapshot.docs.length > 50) {
-          _logger.info(
-              'Free user: limiting to 50 transactions out of ${snapshot.docs.length}');
-        }
-
-        // Convert to transaction objects with careful error handling
-        for (var doc in docsToProcess) {
-          try {
-            final data = doc.data() as Map<String, dynamic>;
-            // Validate date field format before conversion
-            if (data['date'] is Timestamp) {
-              final transaction = app_model.Transaction.fromMap(data, doc.id);
-              _transactions.add(transaction);
-            } else {
-              _logger.warning(
-                  'Document ${doc.id} has invalid date format: ${data['date']}');
-            }
-          } catch (docError) {
-            _logger.warning('Error parsing document ${doc.id}: $docError');
-          }
-        }
-
-        // Sort transactions by date (newest first)
-        _transactions.sort((a, b) => b.date.compareTo(a.date));
-
-        // Debug logging
-        if (_transactions.isEmpty) {
-          _logger.warning('No valid transactions found for user: $_userId');
-        } else {
-          _logger.info(
-              'Successfully loaded ${_transactions.length} valid transactions');
-        }
-      } catch (firestoreError) {
-        _logger.severe('Firestore query error: $firestoreError');
-        rethrow;
+            'Successfully loaded ${_transactions.length} valid transactions');
       }
 
       notifyListeners();
     } catch (e) {
       _logger.warning('Error fetching transactions: $e');
-      // Don't throw - just log and keep empty list
       _transactions = [];
       notifyListeners();
     }
+  }
+
+  Future<QuerySnapshot> _buildTransactionQuery(bool isPremium) async {
+    final collection =
+        FirebaseFirestore.instance.collection('transactions');
+    _logger.info('Collection reference created: ${collection.path}');
+
+    final collectionSnapshot = await collection.limit(1).get();
+    _logger.info('Collection exists: ${collectionSnapshot.docs.isNotEmpty}');
+
+    Query query = collection.where('userId', isEqualTo: _userId);
+
+    if (!isPremium) {
+      final thirtyDaysAgo =
+          DateTime.now().subtract(const Duration(days: 30));
+      query = query.where('date',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(thirtyDaysAgo));
+      _logger.info('Free user: limiting transactions to last 30 days');
+    }
+
+    final snapshot = await query.get();
+    _logger.info(
+        'Retrieved ${snapshot.docs.length} transactions from database');
+    return snapshot;
+  }
+
+  List<app_model.Transaction> _parseTransactionDocs(
+      List<QueryDocumentSnapshot> docs, bool isPremium) {
+    final docsToProcess = !isPremium && docs.length > 50
+        ? docs.take(50).toList()
+        : docs;
+
+    if (!isPremium && docs.length > 50) {
+      _logger.info(
+          'Free user: limiting to 50 transactions out of ${docs.length}');
+    }
+
+    final List<app_model.Transaction> result = [];
+
+    for (var doc in docsToProcess) {
+      try {
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['date'] is Timestamp) {
+          final transaction = app_model.Transaction.fromMap(data, doc.id);
+          result.add(transaction);
+        } else {
+          _logger.warning(
+              'Document ${doc.id} has invalid date format: ${data['date']}');
+        }
+      } catch (docError) {
+        _logger.warning('Error parsing document ${doc.id}: $docError');
+      }
+    }
+
+    return result;
   }
 
   // Handle transaction interactions with saving goals
   Future<Map<String, dynamic>> _handleSavingGoalTransaction(
       app_model.Transaction oldTransaction,
       app_model.Transaction newTransaction) async {
-    // Map to hold processing result
     Map<String, dynamic> result = {'success': true};
 
     try {
@@ -482,7 +472,6 @@ class FinanceProvider with ChangeNotifier {
       _logger.info(
           'New contribution %: ${newTransaction.contributionPercentage}%');
 
-      // Calculate effective amounts that were/will be contributed
       final double oldEffectiveAmount = oldTransaction.contributesToGoal
           ? oldTransaction.amount *
               (oldTransaction.contributionPercentage ?? 100.0) /
@@ -498,170 +487,22 @@ class FinanceProvider with ChangeNotifier {
       _logger.info('Old effective contribution: $oldEffectiveAmount');
       _logger.info('New effective contribution: $newEffectiveAmount');
 
-      // CASE 1: No old goal, but new one added
-      if ((oldGoalId == null || oldGoalId.isEmpty) &&
-          newGoalId != null &&
-          newGoalId.isNotEmpty) {
-        _logger.info('CASE 1: Adding contribution to new goal');
+      final bool oldHasGoal = oldGoalId != null && oldGoalId.isNotEmpty;
+      final bool newHasGoal = newGoalId != null && newGoalId.isNotEmpty;
 
-        // Get the new goal
-        final newGoal = await getSavingGoalById(newGoalId);
-        if (newGoal == null) {
-          _logger.warning('New goal not found: $newGoalId');
-          result['success'] = false;
-          result['error'] = 'New goal not found: $newGoalId';
-          return result;
-        }
-
-        result['newGoalName'] = newGoal.title;
-
-        // Check if adding this transaction would cause the goal to be completed
-        final willExceedTarget = (newGoal.currentAmount + newEffectiveAmount) >=
-            newGoal.targetAmount;
-        result['willExceedTarget'] = willExceedTarget;
-
-        // Check if the goal is already completed
-        if (newGoal.isCompleted) {
-          _logger.warning('Adding to a completed goal: ${newGoal.title}');
-          result['isCompleted'] = true;
-          result['addedToCompletedGoal'] = true;
-          // Still add the contribution
-        }
-
-        // Add contribution to the new goal
-        await addContributionToSavingGoal(newGoal, newTransaction.amount,
-            contributionPercentage: newTransaction.contributionPercentage);
-        result['goalAdded'] = true;
-      }
-
-      // CASE 2: Both old and new goals exist, but they're different
-      else if (oldGoalId != null &&
-          oldGoalId.isNotEmpty &&
-          newGoalId != null &&
-          newGoalId.isNotEmpty &&
-          oldGoalId != newGoalId) {
-        _logger.info('CASE 2: Changing from one goal to another');
-
-        // Get both goals
-        final oldGoal = await getSavingGoalById(oldGoalId);
-        final newGoal = await getSavingGoalById(newGoalId);
-
-        if (oldGoal == null) {
-          _logger.warning('Old goal not found: $oldGoalId');
-          result['success'] = false;
-          result['error'] = 'Old goal not found: $oldGoalId';
-          return result;
-        }
-
-        if (newGoal == null) {
-          _logger.warning('New goal not found: $newGoalId');
-          result['success'] = false;
-          result['error'] = 'New goal not found: $newGoalId';
-          return result;
-        }
-
-        result['oldGoalName'] = oldGoal.title;
-        result['newGoalName'] = newGoal.title;
-
-        // Check if the new goal is already completed
-        if (newGoal.isCompleted) {
-          _logger.warning('Changing to a completed goal: ${newGoal.title}');
-          result['isCompleted'] = true;
-        }
-
-        // Check if adding this transaction would cause the goal to be completed
-        final willExceedTarget = (newGoal.currentAmount + newEffectiveAmount) >=
-            newGoal.targetAmount;
-        result['willExceedTarget'] = willExceedTarget;
-
-        // Remove contribution from old goal
-        // Subtract the old effective amount
-        final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
-        final double oldGoalNewAmount =
-            calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
-        await _databaseService.updateSavingGoal(
-            oldGoal.copyWith(currentAmount: oldGoalNewAmount));
-
-        // Then add to new goal
-        await addContributionToSavingGoal(newGoal, newTransaction.amount,
-            contributionPercentage: newTransaction.contributionPercentage);
-        result['goalChanged'] = true;
-      }
-
-      // CASE 3: Had a goal before, but now removed
-      else if (oldGoalId != null &&
-          oldGoalId.isNotEmpty &&
-          (newGoalId == null || newGoalId.isEmpty)) {
-        _logger.info('CASE 3: Removing goal from transaction');
-
-        // Get the old goal
-        final oldGoal = await getSavingGoalById(oldGoalId);
-        if (oldGoal == null) {
-          _logger.warning('Old goal not found: $oldGoalId');
-          result['success'] = false;
-          result['error'] = 'Old goal not found: $oldGoalId';
-          return result;
-        }
-
-        result['oldGoalName'] = oldGoal.title;
-
-        // Remove contribution from the old goal
-        // Subtract the old effective amount, not just the old amount
-        final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
-        final double oldGoalNewAmount =
-            calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
-        await _databaseService.updateSavingGoal(
-            oldGoal.copyWith(currentAmount: oldGoalNewAmount));
-        result['goalRemoved'] = true;
-      }
-
-      // CASE 4: Same goal, but amount might have changed
-      else if (oldGoalId != null &&
-          oldGoalId.isNotEmpty &&
-          newGoalId != null &&
-          newGoalId.isNotEmpty &&
-          oldGoalId == newGoalId) {
-        _logger.info('CASE 4: Updating same goal with new amount');
-
-        // Get the goal
-        final goal = await getSavingGoalById(newGoalId);
-        if (goal == null) {
-          _logger.warning('Goal not found: $newGoalId');
-          result['success'] = false;
-          result['error'] = 'Goal not found: $newGoalId';
-          return result;
-        }
-
-        result['oldGoalName'] = goal.title;
-        result['newGoalName'] = goal.title;
-
-        // Check if the goal is already completed
-        if (goal.isCompleted) {
-          _logger.warning('Updating a completed goal: ${goal.title}');
-          result['isCompleted'] = true;
-        }
-
-        // Calculate the new goal amount by removing the old contribution and adding the new one
-        final double differenceAmount = newEffectiveAmount - oldEffectiveAmount;
-        final calculatedNewAmount = goal.currentAmount + differenceAmount;
-        final double updatedAmount =
-            calculatedNewAmount < 0.0 ? 0.0 : calculatedNewAmount;
-
-        _logger.info('Difference amount: $differenceAmount');
-        _logger.info('New goal amount: $updatedAmount');
-
-        // Check if updating this transaction would cause the goal to be completed
-        final willExceedTarget = updatedAmount >= goal.targetAmount;
-        result['willExceedTarget'] = willExceedTarget;
-
-        // Update the goal with the new amount
-        await _databaseService
-            .updateSavingGoal(goal.copyWith(currentAmount: updatedAmount));
-        result['goalUpdated'] = true;
-      }
-
-      // CASE 5: No relevant goal changes
-      else {
+      if (!oldHasGoal && newHasGoal) {
+        result = await _handleGoalAdded(
+            newGoalId, newEffectiveAmount, newTransaction, result);
+      } else if (oldHasGoal && newHasGoal && oldGoalId != newGoalId) {
+        result = await _handleGoalChanged(oldGoalId, newGoalId,
+            oldEffectiveAmount, newEffectiveAmount, newTransaction, result);
+      } else if (oldHasGoal && !newHasGoal) {
+        result = await _handleGoalRemoved(
+            oldGoalId, oldEffectiveAmount, result);
+      } else if (oldHasGoal && newHasGoal && oldGoalId == newGoalId) {
+        result = await _handleGoalAmountUpdated(
+            newGoalId, oldEffectiveAmount, newEffectiveAmount, result);
+      } else {
         _logger.fine('CASE 5: No relevant goal changes detected');
         _logger.fine('Old transaction type: ${oldTransaction.type}');
         _logger.fine('New transaction type: ${newTransaction.type}');
@@ -669,7 +510,6 @@ class FinanceProvider with ChangeNotifier {
         _logger.fine('New goal ID: $newGoalId');
         _logger.fine('Old amount: ${oldTransaction.amount}');
         _logger.fine('New amount: ${newTransaction.amount}');
-        return result;
       }
 
       return result;
@@ -680,6 +520,149 @@ class FinanceProvider with ChangeNotifier {
         'error': 'Error handling saving goal transaction: $e'
       };
     }
+  }
+
+  // CASE 1: No old goal, but new one added
+  Future<Map<String, dynamic>> _handleGoalAdded(
+    String newGoalId,
+    double newEffectiveAmount,
+    app_model.Transaction newTransaction,
+    Map<String, dynamic> result,
+  ) async {
+    _logger.info('CASE 1: Adding contribution to new goal');
+
+    final newGoal = await getSavingGoalById(newGoalId);
+    if (newGoal == null) {
+      _logger.warning('New goal not found: $newGoalId');
+      return {'success': false, 'error': 'New goal not found: $newGoalId'};
+    }
+
+    result['newGoalName'] = newGoal.title;
+    result['willExceedTarget'] =
+        (newGoal.currentAmount + newEffectiveAmount) >= newGoal.targetAmount;
+
+    if (newGoal.isCompleted) {
+      _logger.warning('Adding to a completed goal: ${newGoal.title}');
+      result['isCompleted'] = true;
+      result['addedToCompletedGoal'] = true;
+    }
+
+    await addContributionToSavingGoal(newGoal, newTransaction.amount,
+        contributionPercentage: newTransaction.contributionPercentage);
+    result['goalAdded'] = true;
+    return result;
+  }
+
+  // CASE 2: Both old and new goals exist, but they're different
+  Future<Map<String, dynamic>> _handleGoalChanged(
+    String oldGoalId,
+    String newGoalId,
+    double oldEffectiveAmount,
+    double newEffectiveAmount,
+    app_model.Transaction newTransaction,
+    Map<String, dynamic> result,
+  ) async {
+    _logger.info('CASE 2: Changing from one goal to another');
+
+    final oldGoal = await getSavingGoalById(oldGoalId);
+    if (oldGoal == null) {
+      _logger.warning('Old goal not found: $oldGoalId');
+      return {'success': false, 'error': 'Old goal not found: $oldGoalId'};
+    }
+
+    final newGoal = await getSavingGoalById(newGoalId);
+    if (newGoal == null) {
+      _logger.warning('New goal not found: $newGoalId');
+      return {'success': false, 'error': 'New goal not found: $newGoalId'};
+    }
+
+    result['oldGoalName'] = oldGoal.title;
+    result['newGoalName'] = newGoal.title;
+
+    if (newGoal.isCompleted) {
+      _logger.warning('Changing to a completed goal: ${newGoal.title}');
+      result['isCompleted'] = true;
+    }
+
+    result['willExceedTarget'] =
+        (newGoal.currentAmount + newEffectiveAmount) >= newGoal.targetAmount;
+
+    // Remove contribution from old goal
+    final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
+    final double oldGoalNewAmount =
+        calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
+    await _databaseService.updateSavingGoal(
+        oldGoal.copyWith(currentAmount: oldGoalNewAmount));
+
+    // Then add to new goal
+    await addContributionToSavingGoal(newGoal, newTransaction.amount,
+        contributionPercentage: newTransaction.contributionPercentage);
+    result['goalChanged'] = true;
+    return result;
+  }
+
+  // CASE 3: Had a goal before, but now removed
+  Future<Map<String, dynamic>> _handleGoalRemoved(
+    String oldGoalId,
+    double oldEffectiveAmount,
+    Map<String, dynamic> result,
+  ) async {
+    _logger.info('CASE 3: Removing goal from transaction');
+
+    final oldGoal = await getSavingGoalById(oldGoalId);
+    if (oldGoal == null) {
+      _logger.warning('Old goal not found: $oldGoalId');
+      return {'success': false, 'error': 'Old goal not found: $oldGoalId'};
+    }
+
+    result['oldGoalName'] = oldGoal.title;
+
+    final calculatedAmount = oldGoal.currentAmount - oldEffectiveAmount;
+    final double oldGoalNewAmount =
+        calculatedAmount < 0.0 ? 0.0 : calculatedAmount;
+    await _databaseService.updateSavingGoal(
+        oldGoal.copyWith(currentAmount: oldGoalNewAmount));
+    result['goalRemoved'] = true;
+    return result;
+  }
+
+  // CASE 4: Same goal, but amount might have changed
+  Future<Map<String, dynamic>> _handleGoalAmountUpdated(
+    String goalId,
+    double oldEffectiveAmount,
+    double newEffectiveAmount,
+    Map<String, dynamic> result,
+  ) async {
+    _logger.info('CASE 4: Updating same goal with new amount');
+
+    final goal = await getSavingGoalById(goalId);
+    if (goal == null) {
+      _logger.warning('Goal not found: $goalId');
+      return {'success': false, 'error': 'Goal not found: $goalId'};
+    }
+
+    result['oldGoalName'] = goal.title;
+    result['newGoalName'] = goal.title;
+
+    if (goal.isCompleted) {
+      _logger.warning('Updating a completed goal: ${goal.title}');
+      result['isCompleted'] = true;
+    }
+
+    final double differenceAmount = newEffectiveAmount - oldEffectiveAmount;
+    final calculatedNewAmount = goal.currentAmount + differenceAmount;
+    final double updatedAmount =
+        calculatedNewAmount < 0.0 ? 0.0 : calculatedNewAmount;
+
+    _logger.info('Difference amount: $differenceAmount');
+    _logger.info('New goal amount: $updatedAmount');
+
+    result['willExceedTarget'] = updatedAmount >= goal.targetAmount;
+
+    await _databaseService
+        .updateSavingGoal(goal.copyWith(currentAmount: updatedAmount));
+    result['goalUpdated'] = true;
+    return result;
   }
 
   // Handle new transaction contribution to a saving goal
@@ -879,144 +862,17 @@ class FinanceProvider with ChangeNotifier {
         orElse: () => transaction,
       );
 
-      final String? oldGoalId = oldTransaction.goalId;
-      final String? newGoalId = transaction.goalId;
-
-      // Log transaction details
-      _logger.info('oldGoalId: $oldGoalId');
-      _logger.info('newGoalId: $newGoalId');
-
-      // Process goals and update the transaction
-      // This covers adding goals, changing goals, and removing goals
-      if ((oldGoalId != null && oldGoalId.isNotEmpty) ||
-          (newGoalId != null && newGoalId.isNotEmpty)) {
-        _logger.info('Transaction has goal ID - handling saving goal updates');
-        final goalResult =
-            await _handleSavingGoalTransaction(oldTransaction, transaction);
-
-        if (!goalResult['success']) {
-          _error = goalResult['error'];
-          _logger.warning(_error!);
-          _isLoading = false;
-          _isInTransactionUpdate = false;
-          notifyListeners();
-          result['success'] = false;
-          result['message'] = _error!;
-          return result;
-        }
-
-        // Copy goal-related results to our result object
-        if (goalResult.containsKey('goalChanged') &&
-            goalResult['goalChanged']) {
-          result['goalChanged'] = true;
-          result['oldGoalName'] = goalResult['oldGoalName'];
-          result['newGoalName'] = goalResult['newGoalName'];
-
-          final percentInfo = transaction.contributionPercentage != null &&
-                  transaction.contributionPercentage! < 100
-              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
-              : "";
-
-          if (goalResult.containsKey('isCompleted') &&
-              goalResult['isCompleted']) {
-            result['isCompleted'] = true;
-            result['message'] =
-                'Transaction moved to already completed goal "${goalResult['newGoalName']}". '
-                'Goal progress updated accordingly.$percentInfo';
-          } else {
-            result['message'] =
-                'Transaction moved from "${goalResult['oldGoalName']}" to "${goalResult['newGoalName']}".$percentInfo';
-          }
-        } else if (goalResult.containsKey('goalAdded') &&
-            goalResult['goalAdded']) {
-          result['goalAdded'] = true;
-          result['newGoalName'] = goalResult['newGoalName'];
-
-          final percentInfo = transaction.contributionPercentage != null &&
-                  transaction.contributionPercentage! < 100
-              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
-              : "";
-
-          if (goalResult.containsKey('isCompleted') &&
-              goalResult['isCompleted']) {
-            result['isCompleted'] = true;
-            result['message'] =
-                'Transaction added to already completed goal "${goalResult['newGoalName']}". '
-                'Goal progress updated.$percentInfo';
-          } else {
-            result['message'] =
-                'Transaction now contributes to "${goalResult['newGoalName']}".$percentInfo';
-          }
-        } else if (goalResult.containsKey('goalRemoved') &&
-            goalResult['goalRemoved']) {
-          result['goalRemoved'] = true;
-          result['oldGoalName'] = goalResult['oldGoalName'];
-          result['message'] =
-              'Transaction no longer contributes to "${goalResult['oldGoalName']}"';
-        } else if (goalResult.containsKey('goalUpdated') &&
-            goalResult['goalUpdated']) {
-          result['goalUpdated'] = true;
-          result['newGoalName'] = goalResult['newGoalName'];
-
-          final percentInfo = transaction.contributionPercentage != null &&
-                  transaction.contributionPercentage! < 100
-              ? " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)"
-              : "";
-
-          if (goalResult.containsKey('isCompleted') &&
-              goalResult['isCompleted']) {
-            result['isCompleted'] = true;
-            result['message'] =
-                'Updated contribution to completed goal "${goalResult['newGoalName']}".$percentInfo';
-          } else {
-            result['message'] =
-                'Updated contribution to "${goalResult['newGoalName']}".$percentInfo';
-          }
-        }
-
-        // Check if the transaction will exceed the goal target
-        if (goalResult.containsKey('willExceedTarget') &&
-            goalResult['willExceedTarget']) {
-          result['willExceedTarget'] = true;
-          result['newGoalName'] = goalResult['newGoalName'];
-          result['newGoalTarget'] = goalResult['newGoalTarget'];
-          result['newGoalCurrent'] = goalResult['newGoalCurrent'];
-          result['transactionAmount'] = goalResult['transactionAmount'];
-        }
-      }
-
-      // STEP 2: Update the transaction in database
-      _logger.info('Now updating the transaction in database');
-      final success = await _databaseService.updateTransaction(transaction);
-
-      if (!success) {
-        _error = 'Failed to update transaction in database';
-        _logger.warning(_error!);
-        _isLoading = false;
-        _isInTransactionUpdate = false;
-        notifyListeners();
-        result['message'] = _error!;
+      // Handle goal changes if applicable
+      result = await _handleGoalChanges(
+          oldTransaction, transaction, result);
+      if (result.containsKey('_earlyReturn') && result['_earlyReturn']) {
+        result.remove('_earlyReturn');
         return result;
       }
 
-      // Update in memory
-      final index = _transactions.indexWhere((t) => t.id == transaction.id);
-      if (index >= 0) {
-        _transactions[index] = transaction;
-      }
+      // Persist the transaction update
+      result = await _persistTransactionUpdate(transaction, result);
 
-      // Refresh data
-      await fetchTransactions();
-      await fetchSavingGoals();
-
-      _isLoading = false;
-      _isInTransactionUpdate = false; // Reset flag
-      notifyListeners();
-
-      result['success'] = true;
-      if (result['message'].isEmpty) {
-        result['message'] = 'Transaction updated successfully.';
-      }
       return result;
     } catch (e) {
       _error = 'Error updating transaction: $e';
@@ -1027,6 +883,161 @@ class FinanceProvider with ChangeNotifier {
       result['message'] = _error!;
       return result;
     }
+  }
+
+  Future<Map<String, dynamic>> _handleGoalChanges(
+    app_model.Transaction oldTransaction,
+    app_model.Transaction transaction,
+    Map<String, dynamic> result,
+  ) async {
+    final String? oldGoalId = oldTransaction.goalId;
+    final String? newGoalId = transaction.goalId;
+
+    _logger.info('oldGoalId: $oldGoalId');
+    _logger.info('newGoalId: $newGoalId');
+
+    final bool hasGoalInvolved =
+        (oldGoalId != null && oldGoalId.isNotEmpty) ||
+        (newGoalId != null && newGoalId.isNotEmpty);
+
+    if (!hasGoalInvolved) return result;
+
+    _logger.info('Transaction has goal ID - handling saving goal updates');
+    final goalResult =
+        await _handleSavingGoalTransaction(oldTransaction, transaction);
+
+    if (!goalResult['success']) {
+      _error = goalResult['error'];
+      _logger.warning(_error!);
+      _isLoading = false;
+      _isInTransactionUpdate = false;
+      notifyListeners();
+      result['success'] = false;
+      result['message'] = _error!;
+      result['_earlyReturn'] = true;
+      return result;
+    }
+
+    result = _buildUpdateResultMessage(goalResult, transaction, result);
+
+    // Check if the transaction will exceed the goal target
+    if (goalResult.containsKey('willExceedTarget') &&
+        goalResult['willExceedTarget']) {
+      result['willExceedTarget'] = true;
+      result['newGoalName'] = goalResult['newGoalName'];
+      result['newGoalTarget'] = goalResult['newGoalTarget'];
+      result['newGoalCurrent'] = goalResult['newGoalCurrent'];
+      result['transactionAmount'] = goalResult['transactionAmount'];
+    }
+
+    return result;
+  }
+
+  String _buildContributionPercentInfo(app_model.Transaction transaction) {
+    if (transaction.contributionPercentage != null &&
+        transaction.contributionPercentage! < 100) {
+      return " (${transaction.contributionPercentage!.toStringAsFixed(0)}% of income)";
+    }
+    return "";
+  }
+
+  Map<String, dynamic> _buildUpdateResultMessage(
+    Map<String, dynamic> goalResult,
+    app_model.Transaction transaction,
+    Map<String, dynamic> result,
+  ) {
+    final percentInfo = _buildContributionPercentInfo(transaction);
+    final bool isCompleted = goalResult.containsKey('isCompleted') &&
+        goalResult['isCompleted'];
+
+    if (goalResult.containsKey('goalChanged') && goalResult['goalChanged']) {
+      result['goalChanged'] = true;
+      result['oldGoalName'] = goalResult['oldGoalName'];
+      result['newGoalName'] = goalResult['newGoalName'];
+
+      if (isCompleted) {
+        result['isCompleted'] = true;
+        result['message'] =
+            'Transaction moved to already completed goal "${goalResult['newGoalName']}". '
+            'Goal progress updated accordingly.$percentInfo';
+      } else {
+        result['message'] =
+            'Transaction moved from "${goalResult['oldGoalName']}" to "${goalResult['newGoalName']}".$percentInfo';
+      }
+    } else if (goalResult.containsKey('goalAdded') &&
+        goalResult['goalAdded']) {
+      result['goalAdded'] = true;
+      result['newGoalName'] = goalResult['newGoalName'];
+
+      if (isCompleted) {
+        result['isCompleted'] = true;
+        result['message'] =
+            'Transaction added to already completed goal "${goalResult['newGoalName']}". '
+            'Goal progress updated.$percentInfo';
+      } else {
+        result['message'] =
+            'Transaction now contributes to "${goalResult['newGoalName']}".$percentInfo';
+      }
+    } else if (goalResult.containsKey('goalRemoved') &&
+        goalResult['goalRemoved']) {
+      result['goalRemoved'] = true;
+      result['oldGoalName'] = goalResult['oldGoalName'];
+      result['message'] =
+          'Transaction no longer contributes to "${goalResult['oldGoalName']}"';
+    } else if (goalResult.containsKey('goalUpdated') &&
+        goalResult['goalUpdated']) {
+      result['goalUpdated'] = true;
+      result['newGoalName'] = goalResult['newGoalName'];
+
+      if (isCompleted) {
+        result['isCompleted'] = true;
+        result['message'] =
+            'Updated contribution to completed goal "${goalResult['newGoalName']}".$percentInfo';
+      } else {
+        result['message'] =
+            'Updated contribution to "${goalResult['newGoalName']}".$percentInfo';
+      }
+    }
+
+    return result;
+  }
+
+  Future<Map<String, dynamic>> _persistTransactionUpdate(
+    app_model.Transaction transaction,
+    Map<String, dynamic> result,
+  ) async {
+    _logger.info('Now updating the transaction in database');
+    final success = await _databaseService.updateTransaction(transaction);
+
+    if (!success) {
+      _error = 'Failed to update transaction in database';
+      _logger.warning(_error!);
+      _isLoading = false;
+      _isInTransactionUpdate = false;
+      notifyListeners();
+      result['message'] = _error!;
+      return result;
+    }
+
+    // Update in memory
+    final index = _transactions.indexWhere((t) => t.id == transaction.id);
+    if (index >= 0) {
+      _transactions[index] = transaction;
+    }
+
+    // Refresh data
+    await fetchTransactions();
+    await fetchSavingGoals();
+
+    _isLoading = false;
+    _isInTransactionUpdate = false; // Reset flag
+    notifyListeners();
+
+    result['success'] = true;
+    if (result['message'].isEmpty) {
+      result['message'] = 'Transaction updated successfully.';
+    }
+    return result;
   }
 
   /// Deletes a transaction
@@ -1814,50 +1825,65 @@ class FinanceProvider with ChangeNotifier {
     bool createdAny = false;
 
     for (final template in templates) {
-      // Skip if recurrence has ended
-      if (template.recurrenceEndDate != null &&
-          template.recurrenceEndDate!.isBefore(today)) {
-        continue;
-      }
+      if (!_shouldGenerateTransaction(template, today)) continue;
 
-      // Find the most recent child transaction for this template
-      DateTime lastDate = template.date;
-      for (final t in _transactions) {
-        if (t.parentTransactionId == template.id &&
-            t.date.isAfter(lastDate)) {
-          lastDate = t.date;
-        }
-      }
-
-      // Generate entries from lastDate up to today
-      DateTime? nextDate = template.nextOccurrenceAfter(lastDate);
-      while (nextDate != null && !nextDate.isAfter(today)) {
-        final newEntry = app_model.Transaction(
-          userId: template.userId,
-          title: template.title,
-          amount: template.amount,
-          date: nextDate,
-          type: template.type,
-          category: template.category,
-          note: template.note,
-          parentTransactionId: template.id,
-          isRecurring: false, // Children are not templates
-        );
-
-        try {
-          await _databaseService.addTransaction(newEntry);
-          createdAny = true;
-        } catch (e) {
-          _logger.warning('Error creating recurring entry: $e');
-        }
-
-        nextDate = template.nextOccurrenceAfter(nextDate);
-      }
+      final generated = await _generateRecurringEntries(template, today);
+      if (generated) createdAny = true;
     }
 
     if (createdAny) {
       await fetchTransactions();
     }
+  }
+
+  bool _shouldGenerateTransaction(
+      app_model.Transaction template, DateTime today) {
+    if (template.recurrenceEndDate != null &&
+        template.recurrenceEndDate!.isBefore(today)) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<bool> _generateRecurringEntries(
+      app_model.Transaction template, DateTime today) async {
+    // Find the most recent child transaction for this template
+    DateTime lastDate = template.date;
+    for (final t in _transactions) {
+      if (t.parentTransactionId == template.id &&
+          t.date.isAfter(lastDate)) {
+        lastDate = t.date;
+      }
+    }
+
+    bool createdAny = false;
+
+    // Generate entries from lastDate up to today
+    DateTime? nextDate = template.nextOccurrenceAfter(lastDate);
+    while (nextDate != null && !nextDate.isAfter(today)) {
+      final newEntry = app_model.Transaction(
+        userId: template.userId,
+        title: template.title,
+        amount: template.amount,
+        date: nextDate,
+        type: template.type,
+        category: template.category,
+        note: template.note,
+        parentTransactionId: template.id,
+        isRecurring: false, // Children are not templates
+      );
+
+      try {
+        await _databaseService.addTransaction(newEntry);
+        createdAny = true;
+      } catch (e) {
+        _logger.warning('Error creating recurring entry: $e');
+      }
+
+      nextDate = template.nextOccurrenceAfter(nextDate);
+    }
+
+    return createdAny;
   }
 
   /// Toggle pause/resume on a recurring transaction template.

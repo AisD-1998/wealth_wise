@@ -131,7 +131,7 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<InvestmentType>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(
                   labelText: 'Type',
                   prefixIcon: Icon(Icons.category),

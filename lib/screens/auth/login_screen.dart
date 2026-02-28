@@ -49,54 +49,9 @@ class _LoginScreenState extends State<LoginScreen> {
             password: _passwordController.text.trim(),
           );
 
-      if (mounted && success) {
-        // Store variables that need context here, before async gap
-        final authProvider = context.read<AuthProvider>();
-        final userPreferencesProvider =
-            Provider.of<UserPreferencesProvider>(context, listen: false);
-        final userId = authProvider.user?.uid;
+      if (!mounted || !success) return;
 
-        // Offer biometric login setup if available
-        final biometricAuthProvider =
-            Provider.of<BiometricAuthProvider>(context, listen: false);
-
-        if (biometricAuthProvider.isAvailable &&
-            !biometricAuthProvider.isEnabled) {
-          _offerBiometricSetup();
-        }
-
-        // Save any temporary user preferences to Firestore if available
-        if (userId != null) {
-          // Try to save any temporary preferences if we have them
-          try {
-            await userPreferencesProvider.loadTempPreferencesFromLocal();
-
-            if (userPreferencesProvider.tempPrimaryGoal != null &&
-                userPreferencesProvider.tempIncomeRange != null &&
-                userPreferencesProvider.tempExpertise != null) {
-              await userPreferencesProvider.saveUserPreferences(userId);
-            }
-
-            // try to load the user's existing preferences
-            await userPreferencesProvider.loadUserPreferences(userId);
-          } catch (e) {
-            // Silently handle errors with preferences - don't block login
-            _logger
-                .warning('Failed to handle user preferences: ${e.toString()}');
-          }
-        }
-
-        // Check if mounted before using context after async gap
-        if (!mounted) return;
-
-        // Force navigation to home screen after successful login
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const HomeScreen(),
-          ),
-        );
-
-      }
+      await _postSignInSetup();
     } catch (e) {
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
@@ -107,9 +62,100 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _postSignInSetup() async {
+    // Store variables that need context here, before async gap
+    final authProvider = context.read<AuthProvider>();
+    final userPreferencesProvider =
+        Provider.of<UserPreferencesProvider>(context, listen: false);
+    final userId = authProvider.user?.uid;
+
+    // Offer biometric login setup if available
+    final biometricAuthProvider =
+        Provider.of<BiometricAuthProvider>(context, listen: false);
+
+    if (biometricAuthProvider.isAvailable &&
+        !biometricAuthProvider.isEnabled) {
+      _offerBiometricSetup();
+    }
+
+    // Save any temporary user preferences to Firestore if available
+    if (userId != null) {
+      await _syncUserPreferences(userPreferencesProvider, userId);
+    }
+
+    // Check if mounted before using context after async gap
+    if (!mounted) return;
+
+    // Force navigation to home screen after successful login
+    _navigateToHome();
+  }
+
+  Future<void> _syncUserPreferences(
+      UserPreferencesProvider userPreferencesProvider, String userId) async {
+    try {
+      await userPreferencesProvider.loadTempPreferencesFromLocal();
+
+      if (userPreferencesProvider.tempPrimaryGoal != null &&
+          userPreferencesProvider.tempIncomeRange != null &&
+          userPreferencesProvider.tempExpertise != null) {
+        await userPreferencesProvider.saveUserPreferences(userId);
+      }
+
+      // try to load the user's existing preferences
+      await userPreferencesProvider.loadUserPreferences(userId);
+    } catch (e) {
+      // Silently handle errors with preferences - don't block login
+      _logger.warning('Failed to handle user preferences: ${e.toString()}');
+    }
+  }
+
+  void _navigateToHome() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => const HomeScreen(),
+      ),
+    );
+  }
+
+  Future<void> _socialSignIn({
+    required Future<bool> Function() signInMethod,
+    required String providerName,
+  }) async {
+    setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    try {
+      final success = await signInMethod();
+
+      if (!mounted) return;
+
+      if (!success) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Failed to sign in with $providerName')),
+        );
+      } else {
+        navigator.pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => const HomeScreen(),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final biometricAuthProvider = Provider.of<BiometricAuthProvider>(context);
 
@@ -123,296 +169,246 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 48),
-                // Logo and welcome text
-                Icon(
-                  Icons.account_balance_wallet_rounded,
-                  size: 64,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Welcome Back',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Sign in to continue',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurface.withAlpha(179),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                _buildLogo(),
                 const SizedBox(height: 48),
-
-                // Email field
-                TextFormField(
-                  controller: _emailController,
-                  focusNode: _emailFocusNode,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    final emailRegex = RegExp(
-                        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-                    if (!emailRegex.hasMatch(value)) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
+                _buildEmailField(),
                 const SizedBox(height: 16),
-
-                // Password field
-                TextFormField(
-                  controller: _passwordController,
-                  focusNode: _passwordFocusNode,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
-                    }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
-                  },
-                ),
+                _buildPasswordField(),
                 const SizedBox(height: 24),
-
-                // Login button
-                CustomActionButton(
-                  onPressed: _isLoading ? null : _signIn,
-                  label: _isLoading ? 'Signing in...' : 'Sign In',
-                  icon: _isLoading ? Icons.hourglass_empty : Icons.login,
-                  isSmall: false,
-                ),
-
-                // Fingerprint login button - show whenever biometrics is available on the device
+                _buildLoginButton(),
                 if (biometricAuthProvider.isAvailable)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16.0),
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading
-                          ? null
-                          : () => _handleFingerprintButtonPress(
-                              biometricAuthProvider),
-                      icon: Icon(
-                        Icons.fingerprint,
-                        color: biometricAuthProvider.isEnabled
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurface
-                                .withValues(alpha: 128),
-                        size: 28,
-                      ),
-                      label: Text(
-                        biometricAuthProvider.isEnabled
-                            ? 'Sign In with Fingerprint'
-                            : 'Use Fingerprint Login',
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        // Use different styles depending on whether fingerprint is enabled
-                        backgroundColor: biometricAuthProvider.isEnabled
-                            ? theme.colorScheme.primaryContainer
-                            : theme.colorScheme.surfaceContainerHighest,
-                        foregroundColor: biometricAuthProvider.isEnabled
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-
+                  _buildFingerprintButton(biometricAuthProvider),
                 const SizedBox(height: 24),
-
-                // OR divider
-                Row(
-                  children: [
-                    const Expanded(child: Divider()),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'OR',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withAlpha(128),
-                        ),
-                      ),
-                    ),
-                    const Expanded(child: Divider()),
-                  ],
-                ),
+                _buildOrDivider(),
                 const SizedBox(height: 24),
-
-                // Social login buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: CustomActionButton(
-                        onPressed: authProvider.isLoading
-                            ? null
-                            : () async {
-                                setState(() => _isLoading = true);
-                                // Capture ScaffoldMessenger before async operation
-                                final scaffoldMessenger =
-                                    ScaffoldMessenger.of(context);
-                                // Capture Navigator before async operation
-                                final navigator = Navigator.of(context);
-
-                                try {
-                                  final success =
-                                      await authProvider.signInWithGoogle();
-
-                                  if (mounted) {
-                                    if (!success) {
-                                      scaffoldMessenger.showSnackBar(
-                                        const SnackBar(
-                                            content: Text(
-                                                'Failed to sign in with Google')),
-                                      );
-                                    } else {
-                                      // Use MaterialPageRoute instead of named routes
-                                      navigator.pushReplacement(
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              const HomeScreen(),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                } catch (e) {
-                                  if (mounted) {
-                                    scaffoldMessenger.showSnackBar(
-                                      SnackBar(content: Text(e.toString())),
-                                    );
-                                  }
-                                } finally {
-                                  if (mounted) {
-                                    setState(() => _isLoading = false);
-                                  }
-                                }
-                              },
-                        label: 'Google',
-                        icon: Icons.g_mobiledata,
-                        isSmall: true,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: CustomActionButton(
-                        onPressed: () async {
-                          setState(() => _isLoading = true);
-                          final scaffoldMessenger =
-                              ScaffoldMessenger.of(context);
-                          // Capture Navigator before async operation
-                          final navigator = Navigator.of(context);
-
-                          try {
-                            final success =
-                                await authProvider.signInWithFacebook();
-
-                            if (mounted) {
-                              if (!success) {
-                                scaffoldMessenger.showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Failed to sign in with Facebook')),
-                                );
-                              } else {
-                                // Use MaterialPageRoute instead of named routes
-                                navigator.pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (context) => const HomeScreen(),
-                                  ),
-                                );
-                              }
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              scaffoldMessenger.showSnackBar(
-                                SnackBar(content: Text(e.toString())),
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isLoading = false);
-                            }
-                          }
-                        },
-                        label: 'Facebook',
-                        icon: Icons.facebook,
-                        isSmall: true,
-                      ),
-                    ),
-                  ],
-                ),
+                _buildSocialLoginButtons(authProvider),
                 const SizedBox(height: 24),
-
-                // Forgot password and sign up links
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ResetPasswordScreen(),
-                          ),
-                        );
-                      },
-                      child: const Text('Forgot Password?'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const RegisterScreen(),
-                          ),
-                        );
-                      },
-                      child: const Text('Sign Up'),
-                    ),
-                  ],
-                ),
+                _buildRegisterLink(),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildLogo() {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Icon(
+          Icons.account_balance_wallet_rounded,
+          size: 64,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Welcome Back',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.primary,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Sign in to continue',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: theme.colorScheme.onSurface.withAlpha(179),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmailField() {
+    return TextFormField(
+      controller: _emailController,
+      focusNode: _emailFocusNode,
+      keyboardType: TextInputType.emailAddress,
+      decoration: InputDecoration(
+        labelText: 'Email',
+        prefixIcon: const Icon(Icons.email_outlined),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter your email';
+        }
+        // ignore: deprecated_member_use
+        final emailRegex = RegExp(
+            r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+        if (!emailRegex.hasMatch(value)) {
+          return 'Please enter a valid email';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextFormField(
+      controller: _passwordController,
+      focusNode: _passwordFocusNode,
+      obscureText: _obscurePassword,
+      decoration: InputDecoration(
+        labelText: 'Password',
+        prefixIcon: const Icon(Icons.lock_outline),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscurePassword
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined,
+          ),
+          onPressed: () {
+            setState(() {
+              _obscurePassword = !_obscurePassword;
+            });
+          },
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter your password';
+        }
+        if (value.length < 6) {
+          return 'Password must be at least 6 characters';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildLoginButton() {
+    return CustomActionButton(
+      onPressed: _isLoading ? null : _signIn,
+      label: _isLoading ? 'Signing in...' : 'Sign In',
+      icon: _isLoading ? Icons.hourglass_empty : Icons.login,
+      isSmall: false,
+    );
+  }
+
+  Widget _buildFingerprintButton(BiometricAuthProvider biometricAuthProvider) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0),
+      child: ElevatedButton.icon(
+        onPressed: _isLoading
+            ? null
+            : () => _handleFingerprintButtonPress(biometricAuthProvider),
+        icon: Icon(
+          Icons.fingerprint,
+          color: biometricAuthProvider.isEnabled
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurface.withValues(alpha: 128),
+          size: 28,
+        ),
+        label: Text(
+          biometricAuthProvider.isEnabled
+              ? 'Sign In with Fingerprint'
+              : 'Use Fingerprint Login',
+        ),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          // Use different styles depending on whether fingerprint is enabled
+          backgroundColor: biometricAuthProvider.isEnabled
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surfaceContainerHighest,
+          foregroundColor: biometricAuthProvider.isEnabled
+              ? theme.colorScheme.onPrimaryContainer
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrDivider() {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        const Expanded(child: Divider()),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'OR',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withAlpha(128),
+            ),
+          ),
+        ),
+        const Expanded(child: Divider()),
+      ],
+    );
+  }
+
+  Widget _buildSocialLoginButtons(AuthProvider authProvider) {
+    return Row(
+      children: [
+        Expanded(
+          child: CustomActionButton(
+            onPressed: authProvider.isLoading
+                ? null
+                : () => _socialSignIn(
+                      signInMethod: authProvider.signInWithGoogle,
+                      providerName: 'Google',
+                    ),
+            label: 'Google',
+            icon: Icons.g_mobiledata,
+            isSmall: true,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: CustomActionButton(
+            onPressed: () => _socialSignIn(
+              signInMethod: authProvider.signInWithFacebook,
+              providerName: 'Facebook',
+            ),
+            label: 'Facebook',
+            icon: Icons.facebook,
+            isSmall: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRegisterLink() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ResetPasswordScreen(),
+              ),
+            );
+          },
+          child: const Text('Forgot Password?'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const RegisterScreen(),
+              ),
+            );
+          },
+          child: const Text('Sign Up'),
+        ),
+      ],
     );
   }
 
@@ -454,45 +450,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (success) {
         debugPrint("Sign in successful!");
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const HomeScreen(),
+        _navigateToHome();
+        return;
+      }
+
+      // Token-based sign-in failed, try fallback
+      final error = authProvider.error ?? "Failed to sign in";
+      debugPrint("Sign in failed: $error");
+
+      if (await _tryFallbackSignIn(authProvider, email, password, provider)) {
+        return;
+      }
+
+      // If we reach here, all sign-in attempts failed
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Sign-in failed: $error'),
+            backgroundColor: Colors.red,
           ),
         );
-      } else {
-        final error = authProvider.error ?? "Failed to sign in";
-        debugPrint("Sign in failed: $error");
-
-        // Try manual sign-in as fallback
-        if (password?.isNotEmpty == true &&
-            password != '##TOKEN_BASED_AUTH##' &&
-            provider == 'password') {
-          debugPrint("Attempting traditional sign-in as fallback");
-          final manualSuccess = await authProvider.signIn(
-            email: email,
-            password: password!,
-          );
-
-          if (manualSuccess && mounted) {
-            debugPrint("Traditional sign-in successful");
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (context) => const HomeScreen(),
-              ),
-            );
-            return;
-          }
-        }
-
-        // If we reach here, all sign-in attempts failed
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            SnackBar(
-              content: Text('Sign-in failed: $error'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
       }
     } catch (e) {
       debugPrint("Error during biometric login: $e");
@@ -511,6 +488,33 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<bool> _tryFallbackSignIn(
+    AuthProvider authProvider,
+    String email,
+    String? password,
+    String? provider,
+  ) async {
+    if (password?.isNotEmpty != true ||
+        password == '##TOKEN_BASED_AUTH##' ||
+        provider != 'password') {
+      return false;
+    }
+
+    debugPrint("Attempting traditional sign-in as fallback");
+    final manualSuccess = await authProvider.signIn(
+      email: email,
+      password: password!,
+    );
+
+    if (manualSuccess && mounted) {
+      debugPrint("Traditional sign-in successful");
+      _navigateToHome();
+      return true;
+    }
+
+    return false;
   }
 
   // Method to offer biometric login setup
@@ -568,6 +572,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (enableBiometrics != true || !mounted) return;
 
     // Show a progress dialog and handle the setup process
+    _showBiometricSetupProgress(biometricAuthProvider);
+  }
+
+  void _showBiometricSetupProgress(
+      BiometricAuthProvider biometricAuthProvider) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -585,43 +594,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text('Setting up fingerprint login...')
                 ],
               );
-            } else {
-              // Process completed
-              final success = snapshot.data == true;
-              if (success) {
-                return const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.green, size: 48),
-                    SizedBox(height: 16),
-                    Text('Fingerprint login enabled successfully!'),
-                    SizedBox(height: 8),
-                    Text(
-                      'You can now sign in quickly with your fingerprint.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
-                );
-              } else {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error, color: Colors.red, size: 48),
-                    const SizedBox(height: 16),
-                    const Text('Failed to enable fingerprint login'),
-                    if (biometricAuthProvider.error?.isNotEmpty == true)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text(
-                          biometricAuthProvider.error ?? '',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                  ],
-                );
-              }
             }
+
+            // Process completed
+            final success = snapshot.data == true;
+            if (success) {
+              return _buildBiometricSetupSuccess();
+            }
+
+            return _buildBiometricSetupFailure(biometricAuthProvider);
           },
         ),
         actions: [
@@ -631,6 +612,43 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBiometricSetupSuccess() {
+    return const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.check_circle, color: Colors.green, size: 48),
+        SizedBox(height: 16),
+        Text('Fingerprint login enabled successfully!'),
+        SizedBox(height: 8),
+        Text(
+          'You can now sign in quickly with your fingerprint.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBiometricSetupFailure(
+      BiometricAuthProvider biometricAuthProvider) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.error, color: Colors.red, size: 48),
+        const SizedBox(height: 16),
+        const Text('Failed to enable fingerprint login'),
+        if (biometricAuthProvider.error?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Text(
+              biometricAuthProvider.error ?? '',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+      ],
     );
   }
 
@@ -669,62 +687,65 @@ class _LoginScreenState extends State<LoginScreen> {
       _signInWithBiometrics();
     } else {
       // If fingerprint is not enabled yet, show an explanation dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Fingerprint Login Setup'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.fingerprint,
-                size: 48,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Fingerprint login lets you sign in quickly and securely.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'To enable this feature:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                  '1. Sign in with your email/password or social accounts'),
-              const Text('2. Go to Settings > Fingerprint Login'),
-              const Text('3. Toggle the switch to enable'),
-              const SizedBox(height: 12),
-              const Text(
-                'You can use any sign-in method (Google, Facebook, or Email) to activate fingerprint login!',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Maybe Later'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                // Focus the email field to encourage the user to sign in
-                FocusScope.of(context).requestFocus(
-                  _emailController.text.isEmpty
-                      ? _emailFocusNode
-                      : _passwordFocusNode,
-                );
-              },
-              child: const Text('Got It'),
-            ),
-          ],
-        ),
-      );
+      _showFingerprintExplanationDialog();
     }
   }
 
+  void _showFingerprintExplanationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Fingerprint Login Setup'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.fingerprint,
+              size: 48,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Fingerprint login lets you sign in quickly and securely.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'To enable this feature:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+                '1. Sign in with your email/password or social accounts'),
+            const Text('2. Go to Settings > Fingerprint Login'),
+            const Text('3. Toggle the switch to enable'),
+            const SizedBox(height: 12),
+            const Text(
+              'You can use any sign-in method (Google, Facebook, or Email) to activate fingerprint login!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Maybe Later'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Focus the email field to encourage the user to sign in
+              FocusScope.of(context).requestFocus(
+                _emailController.text.isEmpty
+                    ? _emailFocusNode
+                    : _passwordFocusNode,
+              );
+            },
+            child: const Text('Got It'),
+          ),
+        ],
+      ),
+    );
+  }
 }

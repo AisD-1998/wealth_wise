@@ -22,6 +22,8 @@ import 'package:wealth_wise/theme/app_theme.dart';
 import 'package:url_launcher/url_launcher_string.dart'
     show launchUrlString, LaunchMode;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:wealth_wise/constants/app_urls.dart';
+import 'package:wealth_wise/constants/app_strings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -61,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool confirm = await showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Sign Out'),
+            title: Text(AppStrings.kSignOut),
             content: const Text('Are you sure you want to sign out?'),
             actions: [
               TextButton(
@@ -70,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Sign Out'),
+                child: Text(AppStrings.kSignOut),
               ),
             ],
           ),
@@ -129,11 +131,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       itemBuilder: (context, index) {
                         final currency =
                             currencyProvider.availableCurrencies[index];
-                        return RadioListTile<String>(
-                          title: Text(currency),
-                          subtitle:
-                              Text(currencyProvider.getCurrencyName(currency)),
-                          value: currency,
+                        return RadioGroup<String>(
                           groupValue: currencyProvider.currencyCode,
                           onChanged: (value) {
                             if (value != null) {
@@ -141,6 +139,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Navigator.pop(context);
                             }
                           },
+                          child: RadioListTile<String>(
+                            title: Text(currency),
+                            subtitle:
+                                Text(currencyProvider.getCurrencyName(currency)),
+                            value: currency,
+                          ),
                         );
                       },
                     ),
@@ -154,103 +158,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _openExportScreen(BuildContext context) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final user = authProvider.user;
-
+  Future<void> _openPremiumScreen({
+    required String featureKey,
+    required String featureName,
+    required String description,
+    required IconData icon,
+    required Widget screen,
+  }) async {
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
     if (user == null) return;
-
-    // Check premium access
-    final userData =
-        await Provider.of<DatabaseService>(context, listen: false)
-            .getUserData(user.uid);
+    final navigator = Navigator.of(context);
+    final dbService = Provider.of<DatabaseService>(context, listen: false);
+    final userData = await dbService.getUserData(user.uid);
     final featureAccessController = FeatureAccessController();
-    final hasAccess =
-        await featureAccessController.hasAccess(userData, 'export_data');
-
+    final hasAccess = await featureAccessController.hasAccess(userData, featureKey);
     if (!mounted) return;
-
     if (!hasAccess) {
       PremiumFeaturePrompt.showPremiumDialog(
         context,
-        featureName: 'Export Data',
-        description:
-            'Export your financial data as CSV files with a Premium subscription.',
-        icon: Icons.download,
+        featureName: featureName,
+        description: description,
+        icon: icon,
       );
       return;
     }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ExportScreen()),
-    );
-  }
-
-  Future<void> _openBillsScreen(BuildContext context) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final user = authProvider.user;
-
-    if (user == null) return;
-
-    // Check premium access
-    final userData =
-        await Provider.of<DatabaseService>(context, listen: false)
-            .getUserData(user.uid);
-    final featureAccessController = FeatureAccessController();
-    final hasAccess =
-        await featureAccessController.hasAccess(userData, 'bill_reminders');
-
-    if (!mounted) return;
-
-    if (!hasAccess) {
-      PremiumFeaturePrompt.showPremiumDialog(
-        context,
-        featureName: 'Bill Reminders',
-        description:
-            'Track recurring bills and never miss a payment with a Premium subscription.',
-        icon: Icons.receipt_long,
-      );
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const BillsScreen()),
-    );
-  }
-
-  Future<void> _openInvestmentsScreen(BuildContext context) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final user = authProvider.user;
-
-    if (user == null) return;
-
-    // Check premium access
-    final userData =
-        await Provider.of<DatabaseService>(context, listen: false)
-            .getUserData(user.uid);
-    final featureAccessController = FeatureAccessController();
-    final hasAccess =
-        await featureAccessController.hasAccess(userData, 'investment_tracking');
-
-    if (!mounted) return;
-
-    if (!hasAccess) {
-      PremiumFeaturePrompt.showPremiumDialog(
-        context,
-        featureName: 'Investment Tracking',
-        description:
-            'Track your investment portfolio with a Premium subscription.',
-        icon: Icons.show_chart,
-      );
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const InvestmentsScreen()),
-    );
+    navigator.push(MaterialPageRoute(builder: (_) => screen));
   }
 
   void _openNotificationSettings(NotificationProvider notificationProvider) {
@@ -279,68 +211,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 24),
-                    SwitchListTile(
-                      title: const Text('Daily Expense Reminders'),
-                      subtitle: const Text(
-                          'Get a daily reminder to track your expenses'),
-                      value: notificationProvider.notificationsEnabled,
-                      onChanged: (value) {
-                        setState(() {
-                          notificationProvider.toggleNotifications(value);
-                        });
-                      },
-                    ),
+                    _buildNotificationToggle(
+                        notificationProvider, setState),
                     const Divider(),
-                    if (notificationProvider.notificationsEnabled) ...[
-                      ListTile(
-                        title: const Text('Reminder Time'),
-                        subtitle: Text(
-                            '${selectedTime.hour}:${selectedTime.minute.toString().padLeft(2, '0')}'),
-                        trailing: const Icon(Icons.access_time),
-                        onTap: () async {
-                          final TimeOfDay? pickedTime = await showTimePicker(
-                            context: context,
-                            initialTime: selectedTime,
-                          );
-                          if (pickedTime != null) {
-                            setState(() {
-                              selectedTime = pickedTime;
-                            });
-                            notificationProvider.setReminderTime(pickedTime);
-                          }
+                    if (notificationProvider.notificationsEnabled)
+                      ..._buildEnabledNotificationControls(
+                        context,
+                        notificationProvider,
+                        selectedTime,
+                        (TimeOfDay time) {
+                          setState(() {
+                            selectedTime = time;
+                          });
                         },
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: () {
-                          notificationProvider.showNotification(
-                            id: 0,
-                            title: 'Notification Test',
-                            body:
-                                'This is a test notification from WealthWise!',
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Test notification sent. Check your console logs.'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                        child: const Text('Send Test Notification'),
-                      ),
-                    ] else ...[
-                      const Padding(
-                        padding: EdgeInsets.all(16.0),
-                        child: Text(
-                          'Enable notifications to set reminder times and schedule notifications.',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
-                    ],
+                      )
+                    else
+                      ..._buildDisabledNotificationHint(),
                     const SizedBox(height: 16),
                     Align(
                       alignment: Alignment.center,
@@ -357,6 +243,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     );
+  }
+
+  Widget _buildNotificationToggle(
+    NotificationProvider notificationProvider,
+    StateSetter setState,
+  ) {
+    return SwitchListTile(
+      title: const Text('Daily Expense Reminders'),
+      subtitle:
+          const Text('Get a daily reminder to track your expenses'),
+      value: notificationProvider.notificationsEnabled,
+      onChanged: (value) {
+        setState(() {
+          notificationProvider.toggleNotifications(value);
+        });
+      },
+    );
+  }
+
+  List<Widget> _buildEnabledNotificationControls(
+    BuildContext context,
+    NotificationProvider notificationProvider,
+    TimeOfDay selectedTime,
+    ValueChanged<TimeOfDay> onTimeChanged,
+  ) {
+    return [
+      ListTile(
+        title: const Text('Reminder Time'),
+        subtitle: Text(
+            '${selectedTime.hour}:${selectedTime.minute.toString().padLeft(2, '0')}'),
+        trailing: const Icon(Icons.access_time),
+        onTap: () async {
+          final TimeOfDay? pickedTime = await showTimePicker(
+            context: context,
+            initialTime: selectedTime,
+          );
+          if (pickedTime != null) {
+            onTimeChanged(pickedTime);
+            notificationProvider.setReminderTime(pickedTime);
+          }
+        },
+      ),
+      const SizedBox(height: 16),
+      FilledButton(
+        onPressed: () {
+          notificationProvider.showNotification(
+            id: 0,
+            title: 'Notification Test',
+            body: 'This is a test notification from WealthWise!',
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Test notification sent. Check your console logs.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        child: const Text('Send Test Notification'),
+      ),
+    ];
+  }
+
+  List<Widget> _buildDisabledNotificationHint() {
+    return const [
+      Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Text(
+          'Enable notifications to set reminder times and schedule notifications.',
+          style: TextStyle(
+            color: Colors.grey,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+    ];
   }
 
   Future<void> _launchUrl(String url) async {
@@ -400,8 +362,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.primaryGreen),
                   ),
                   title: const Text('Frequently Asked Questions'),
-                  // TODO(account-setup): Replace with real FAQ URL
-                  onTap: () => _launchUrl('https://wealthwise.example.com/faq'),
+                  onTap: () => _launchUrl(AppUrls.faqUrl),
                 ),
                 const Divider(),
                 ListTile(
@@ -412,9 +373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.secondaryBlue),
                   ),
                   title: const Text('Contact Support'),
-                  // TODO(account-setup): Replace with real support email
-                  onTap: () =>
-                      _launchUrl('mailto:support@wealthwise.example.com'),
+                  onTap: () => _launchUrl(AppUrls.supportEmail),
                 ),
                 const Divider(),
                 ListTile(
@@ -425,9 +384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.neutralGray),
                   ),
                   title: const Text('Terms of Service'),
-                  // TODO(account-setup): Replace with real Terms of Service URL
-                  onTap: () =>
-                      _launchUrl('https://wealthwise.example.com/terms'),
+                  onTap: () => _launchUrl(AppUrls.termsUrl),
                 ),
                 const Divider(),
                 ListTile(
@@ -438,9 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.neutralGray),
                   ),
                   title: const Text('Privacy Policy'),
-                  // TODO(account-setup): Replace with real Privacy Policy URL
-                  onTap: () =>
-                      _launchUrl('https://wealthwise.example.com/privacy'),
+                  onTap: () => _launchUrl(AppUrls.privacyUrl),
                 ),
                 const SizedBox(height: 16),
                 Align(
@@ -466,7 +421,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       applicationIcon: CircleAvatar(
         radius: 30,
         backgroundColor: AppTheme.primaryGreen.withValues(alpha: 0.12),
-        child: Icon(
+        child: const Icon(
           Icons.account_balance_wallet,
           color: AppTheme.primaryGreen,
           size: 32,
@@ -490,9 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ActionChip(
               avatar: const Icon(Icons.star, size: 16),
               label: const Text('Rate App'),
-              // TODO(account-setup): Replace with real Play Store URL
-              onPressed: () => _launchUrl(
-                  'https://play.google.com/store/apps/details?id=com.example.wealthwise'),
+              onPressed: () => _launchUrl(AppUrls.playStoreUrl),
             ),
             ActionChip(
               avatar: const Icon(Icons.share, size: 16),
@@ -511,6 +464,281 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildSectionHeader(ThemeData theme, ColorScheme colorScheme,
+      String title, EdgeInsets padding) {
+    return Padding(
+      padding: padding,
+      child: Text(
+        title,
+        style: theme.textTheme.titleSmall?.copyWith(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildAccountSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    AuthProvider authProvider,
+    SubscriptionProvider subscriptionProvider,
+  ) {
+    return [
+      _buildSectionHeader(
+          theme, colorScheme, 'Account', const EdgeInsets.fromLTRB(16, 16, 16, 8)),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.primaryContainer,
+          child: Icon(Icons.person, color: colorScheme.onPrimaryContainer),
+        ),
+        title: const Text('Profile'),
+        subtitle: Text(authProvider.user?.displayName ??
+            authProvider.user?.email ??
+            'User'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ProfileScreen()),
+          );
+        },
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.primaryContainer,
+          child:
+              Icon(Icons.card_membership, color: colorScheme.onPrimaryContainer),
+        ),
+        title: const Text('Subscription'),
+        subtitle:
+            Text(subscriptionProvider.isSubscribed ? 'Premium' : 'Free'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => const SubscriptionScreen()),
+          );
+        },
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.errorContainer,
+          child: Icon(Icons.logout, color: theme.colorScheme.onErrorContainer),
+        ),
+        title: Text(AppStrings.kSignOut),
+        onTap: () => _handleSignOut(context, authProvider),
+      ),
+    ];
+  }
+
+  List<Widget> _buildAppearanceSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    ThemeProvider themeProvider,
+    CurrencyProvider currencyProvider,
+  ) {
+    return [
+      _buildSectionHeader(theme, colorScheme, 'Appearance',
+          const EdgeInsets.fromLTRB(16, 24, 16, 8)),
+      SwitchListTile(
+        secondary: CircleAvatar(
+          backgroundColor: colorScheme.secondaryContainer,
+          child:
+              Icon(Icons.dark_mode, color: colorScheme.onSecondaryContainer),
+        ),
+        title: const Text('Dark Mode'),
+        subtitle: Text(themeProvider.isDarkMode ? 'On' : 'Off'),
+        value: themeProvider.isDarkMode,
+        onChanged: (value) {
+          themeProvider.toggleTheme();
+        },
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.secondaryContainer,
+          child: Icon(Icons.currency_exchange,
+              color: colorScheme.onSecondaryContainer),
+        ),
+        title: const Text('Currency'),
+        subtitle: Text(
+            '${currencyProvider.currencySymbol} (${currencyProvider.currencyCode})'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openCurrencySelector(currencyProvider),
+      ),
+    ];
+  }
+
+  List<Widget> _buildPreferencesSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    NotificationProvider notificationProvider,
+    BiometricAuthProvider biometricAuthProvider,
+    AuthProvider authProvider,
+  ) {
+    return [
+      _buildSectionHeader(theme, colorScheme, 'Preferences',
+          const EdgeInsets.fromLTRB(16, 24, 16, 8)),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child:
+              Icon(Icons.category, color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Categories'),
+        subtitle: const Text('Manage expense categories'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => const CategoriesScreen()),
+          );
+        },
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ..._buildPremiumFeatureTiles(colorScheme),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.calendar_month,
+              color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Monthly Snapshot'),
+        subtitle: const Text('View your monthly summary'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (context) => const MonthlySnapshotScreen()),
+        ),
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.notifications,
+              color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Notifications'),
+        subtitle: Text(notificationProvider.notificationsEnabled
+            ? 'Enabled'
+            : 'Disabled'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openNotificationSettings(notificationProvider),
+      ),
+      if (biometricAuthProvider.isAvailable) ...[
+        const Divider(indent: 72, endIndent: 0),
+        const SizedBox(height: 16),
+        SwitchListTile(
+          secondary: Icon(
+            Icons.fingerprint,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: const Text('Fingerprint Login'),
+          subtitle: Text(
+              biometricAuthProvider.isEnabled ? 'Enabled' : 'Disabled'),
+          value: biometricAuthProvider.isEnabled,
+          onChanged: (value) =>
+              _toggleBiometricLogin(biometricAuthProvider, authProvider),
+        ),
+      ],
+    ];
+  }
+
+  List<Widget> _buildPremiumFeatureTiles(ColorScheme colorScheme) {
+    return [
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.secondaryContainer,
+          child:
+              Icon(Icons.download, color: colorScheme.onSecondaryContainer),
+        ),
+        title: const Text('Export Data'),
+        subtitle: const Text('CSV export'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openPremiumScreen(
+          featureKey: 'export_data',
+          featureName: 'Export Data',
+          description:
+              'Export your financial data as CSV files with a Premium subscription.',
+          icon: Icons.download,
+          screen: const ExportScreen(),
+        ),
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.receipt_long,
+              color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Bill Reminders'),
+        subtitle: const Text('Track recurring bills'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openPremiumScreen(
+          featureKey: 'bill_reminders',
+          featureName: 'Bill Reminders',
+          description:
+              'Track recurring bills and never miss a payment with a Premium subscription.',
+          icon: Icons.receipt_long,
+          screen: const BillsScreen(),
+        ),
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.show_chart,
+              color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Investments'),
+        subtitle: const Text('Track your portfolio'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openPremiumScreen(
+          featureKey: 'investment_tracking',
+          featureName: 'Investment Tracking',
+          description:
+              'Track your investment portfolio with a Premium subscription.',
+          icon: Icons.show_chart,
+          screen: const InvestmentsScreen(),
+        ),
+      ),
+      const Divider(indent: 72, endIndent: 0),
+    ];
+  }
+
+  List<Widget> _buildAboutSection(
+      ThemeData theme, ColorScheme colorScheme) {
+    return [
+      _buildSectionHeader(theme, colorScheme, 'About & Help',
+          const EdgeInsets.fromLTRB(16, 24, 16, 8)),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.help, color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('Help & Support'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _showHelpAndSupport,
+      ),
+      const Divider(indent: 72, endIndent: 0),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.tertiaryContainer,
+          child: Icon(Icons.info, color: colorScheme.onTertiaryContainer),
+        ),
+        title: const Text('About'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _showAboutApp,
+      ),
+    ];
   }
 
   @override
@@ -535,311 +763,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
-          // Account section header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'Account',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          // Profile section
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.primaryContainer,
-              child: Icon(
-                Icons.person,
-                color: colorScheme.onPrimaryContainer,
-              ),
-            ),
-            title: const Text('Profile'),
-            subtitle: Text(authProvider.user?.displayName ??
-                authProvider.user?.email ??
-                'User'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ProfileScreen()),
-              );
-            },
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Subscription
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.primaryContainer,
-              child: Icon(
-                Icons.card_membership,
-                color: colorScheme.onPrimaryContainer,
-              ),
-            ),
-            title: const Text('Subscription'),
-            subtitle:
-                Text(subscriptionProvider.isSubscribed ? 'Premium' : 'Free'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const SubscriptionScreen()),
-              );
-            },
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Sign out
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: theme.colorScheme.errorContainer,
-              child: Icon(
-                Icons.logout,
-                color: theme.colorScheme.onErrorContainer,
-              ),
-            ),
-            title: const Text('Sign Out'),
-            onTap: () => _handleSignOut(context, authProvider),
-          ),
-
-          // Appearance section header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-            child: Text(
-              'Appearance',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          // Theme switch
-          SwitchListTile(
-            secondary: CircleAvatar(
-              backgroundColor: colorScheme.secondaryContainer,
-              child: Icon(
-                Icons.dark_mode,
-                color: colorScheme.onSecondaryContainer,
-              ),
-            ),
-            title: const Text('Dark Mode'),
-            subtitle: Text(themeProvider.isDarkMode ? 'On' : 'Off'),
-            value: themeProvider.isDarkMode,
-            onChanged: (value) {
-              themeProvider.toggleTheme();
-            },
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Currency settings
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.secondaryContainer,
-              child: Icon(
-                Icons.currency_exchange,
-                color: colorScheme.onSecondaryContainer,
-              ),
-            ),
-            title: const Text('Currency'),
-            subtitle: Text(
-                '${currencyProvider.currencySymbol} (${currencyProvider.currencyCode})'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openCurrencySelector(currencyProvider),
-          ),
-
-          // Preferences section header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-            child: Text(
-              'Preferences',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          // Categories settings
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.category,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Categories'),
-            subtitle: const Text('Manage expense categories'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const CategoriesScreen()),
-              );
-            },
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Export Data (Premium)
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.secondaryContainer,
-              child: Icon(
-                Icons.download,
-                color: colorScheme.onSecondaryContainer,
-              ),
-            ),
-            title: const Text('Export Data'),
-            subtitle: const Text('CSV export'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openExportScreen(context),
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Bill Reminders (Premium)
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.receipt_long,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Bill Reminders'),
-            subtitle: const Text('Track recurring bills'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openBillsScreen(context),
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Investments (Premium)
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.show_chart,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Investments'),
-            subtitle: const Text('Track your portfolio'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openInvestmentsScreen(context),
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Monthly Snapshot
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.calendar_month,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Monthly Snapshot'),
-            subtitle: const Text('View your monthly summary'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (context) => const MonthlySnapshotScreen()),
-            ),
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // Notification settings
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.notifications,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Notifications'),
-            subtitle: Text(notificationProvider.notificationsEnabled
-                ? 'Enabled'
-                : 'Disabled'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openNotificationSettings(notificationProvider),
-          ),
-
-          // Only show biometric login option if the device supports it
-          if (biometricAuthProvider.isAvailable) ...[
-            const Divider(indent: 72, endIndent: 0),
-
-            // Fingerprint login settings
-            const SizedBox(height: 16),
-            SwitchListTile(
-              secondary: Icon(
-                Icons.fingerprint,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              title: const Text('Fingerprint Login'),
-              subtitle: Text(
-                  biometricAuthProvider.isEnabled ? 'Enabled' : 'Disabled'),
-              value: biometricAuthProvider.isEnabled,
-              onChanged: (value) =>
-                  _toggleBiometricLogin(biometricAuthProvider, authProvider),
-            ),
-          ],
-
-          // About and Help section header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-            child: Text(
-              'About & Help',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          // Help & Support
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.help,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('Help & Support'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showHelpAndSupport,
-          ),
-
-          const Divider(indent: 72, endIndent: 0),
-
-          // About
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: colorScheme.tertiaryContainer,
-              child: Icon(
-                Icons.info,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            title: const Text('About'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showAboutApp,
-          ),
+          ..._buildAccountSection(
+              theme, colorScheme, authProvider, subscriptionProvider),
+          ..._buildAppearanceSection(
+              theme, colorScheme, themeProvider, currencyProvider),
+          ..._buildPreferencesSection(theme, colorScheme,
+              notificationProvider, biometricAuthProvider, authProvider),
+          ..._buildAboutSection(theme, colorScheme),
         ],
       ),
     );
@@ -849,179 +779,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _toggleBiometricLogin(
       BiometricAuthProvider biometricAuthProvider,
       AuthProvider authProvider) async {
-    // Store BuildContext reference before async operations
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    // If biometric is already enabled, just disable it
     if (biometricAuthProvider.isEnabled) {
-      await biometricAuthProvider.disableBiometricLogin();
-      if (!mounted) return;
-
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(
-          content: Text('Fingerprint login disabled'),
-        ),
-      );
+      await _disableBiometricLogin(biometricAuthProvider, scaffoldMessenger);
       return;
     }
 
-    // Enable biometric login
     if (authProvider.user == null) {
-      if (!mounted) return;
-
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(
-          content: Text('You need to be logged in to enable fingerprint login'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnackBarError(scaffoldMessenger,
+          'You need to be logged in to enable fingerprint login');
       return;
     }
 
-    // Use the direct approach that works in the test button
     try {
-      // Show authentication dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          title: Text('Authenticating'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Verify your fingerprint...'),
-            ],
-          ),
-        ),
-      );
-
-      // Directly use the biometric service instead of going through provider
-      final biometricService = BiometricService();
-      final authenticated = await biometricService.authenticate(
-        reason: 'Verify your identity to enable fingerprint login',
-      );
-
-      // Close the authentication dialog
-      if (mounted && Navigator.of(context).canPop()) {
-        Navigator.pop(context);
-      }
-
-      if (!mounted) return;
-
-      // If authentication failed, show error and return
-      if (!authenticated) {
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text('Biometric authentication failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      // Authentication succeeded, now directly save credentials
-      final userEmail = authProvider.user!.email;
-
-      // Get the auth provider information
-      final userProvider =
-          authProvider.firebaseUser?.providerData.isNotEmpty == true
-              ? authProvider.firebaseUser!.providerData.first.providerId
-              : 'password';
-
-      debugPrint(
-          "Setting up fingerprint login for user with provider: $userProvider");
-
-      // Add a short delay before saving credentials
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      // Check if widget is still mounted before showing dialog
-      if (!mounted) return;
-
-      // For email/password, we need to ask the user to enter their password once more
-      String passwordForStorage = '';
-      bool isTokenBased = true;
-
-      if (userProvider == 'password') {
-        // For email/password authentication, we need to store the actual password
-        // Show a dialog to ask for the password
-        final password = await _promptForPassword();
-
-        if (password == null || password.isEmpty) {
-          // User cancelled
-          if (!mounted) return;
-
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Password required to set up fingerprint login'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-
-        passwordForStorage = password;
-        isTokenBased = false;
-      }
-
-      // First, perform the async operation to save credentials without showing dialog directly
-      // Instead of using FutureBuilder inside a dialog, we'll wait for the future to complete
-      // and then show a dialog with the result
-      bool success = false;
-      try {
-        // Show a loading dialog first
-        if (!mounted) return;
-        _showLoadingDialog('Setting up fingerprint login...');
-
-        // Wait for the operation to complete
-        success = await biometricService.saveCredentials(
-          userEmail,
-          passwordForStorage,
-          isTokenBased: isTokenBased,
-          authProvider: userProvider,
-        );
-
-        // Close the loading dialog
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.pop(context);
-        }
-
-        // Check if widget is still mounted before showing result dialog
-        if (!mounted) return;
-
-        // Show success or error dialog
-        _showResultDialog(success, biometricAuthProvider);
-      } catch (e) {
-        // Close the loading dialog if it's open
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.pop(context);
-        }
-
-        if (!mounted) return;
-
-        scaffoldMessenger.showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      await _enableBiometricLogin(
+          authProvider, biometricAuthProvider, scaffoldMessenger);
     } catch (e) {
-      // Close any open dialogs
-      if (mounted && Navigator.of(context).canPop()) {
-        Navigator.pop(context);
-      }
+      _dismissDialogIfOpen();
+      if (!mounted) return;
+      _showSnackBarError(scaffoldMessenger, 'Error: ${e.toString()}');
+    }
+  }
 
+  Future<void> _disableBiometricLogin(
+    BiometricAuthProvider biometricAuthProvider,
+    ScaffoldMessengerState scaffoldMessenger,
+  ) async {
+    await biometricAuthProvider.disableBiometricLogin();
+    if (!mounted) return;
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(content: Text('Fingerprint login disabled')),
+    );
+  }
+
+  Future<void> _enableBiometricLogin(
+    AuthProvider authProvider,
+    BiometricAuthProvider biometricAuthProvider,
+    ScaffoldMessengerState scaffoldMessenger,
+  ) async {
+    _showAuthenticatingDialog();
+
+    final biometricService = BiometricService();
+    final authenticated = await biometricService.authenticate(
+      reason: 'Verify your identity to enable fingerprint login',
+    );
+
+    _dismissDialogIfOpen();
+    if (!mounted) return;
+
+    if (!authenticated) {
+      _showSnackBarError(scaffoldMessenger, 'Biometric authentication failed');
+      return;
+    }
+
+    final userProvider = _getUserProvider(authProvider);
+    debugPrint(
+        "Setting up fingerprint login for user with provider: $userProvider");
+
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+
+    final credentials =
+        await _resolveCredentials(authProvider, userProvider, scaffoldMessenger);
+    if (credentials == null) return;
+
+    await _saveCredentialsAndShowResult(
+      biometricService,
+      authProvider.user!.email,
+      credentials.$1,
+      credentials.$2,
+      userProvider,
+      biometricAuthProvider,
+      scaffoldMessenger,
+    );
+  }
+
+  void _showAuthenticatingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        title: Text('Authenticating'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Verify your fingerprint...'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _dismissDialogIfOpen() {
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.pop(context);
+    }
+  }
+
+  String _getUserProvider(AuthProvider authProvider) {
+    return authProvider.firebaseUser?.providerData.isNotEmpty == true
+        ? authProvider.firebaseUser!.providerData.first.providerId
+        : 'password';
+  }
+
+  /// Returns (passwordForStorage, isTokenBased) or null if cancelled.
+  Future<(String, bool)?> _resolveCredentials(
+    AuthProvider authProvider,
+    String userProvider,
+    ScaffoldMessengerState scaffoldMessenger,
+  ) async {
+    if (userProvider != 'password') {
+      return ('', true);
+    }
+
+    final password = await _promptForPassword();
+    if (password == null || password.isEmpty) {
+      if (!mounted) return null;
+      _showSnackBarError(
+          scaffoldMessenger, 'Password required to set up fingerprint login');
+      return null;
+    }
+    return (password, false);
+  }
+
+  Future<void> _saveCredentialsAndShowResult(
+    BiometricService biometricService,
+    String userEmail,
+    String passwordForStorage,
+    bool isTokenBased,
+    String userProvider,
+    BiometricAuthProvider biometricAuthProvider,
+    ScaffoldMessengerState scaffoldMessenger,
+  ) async {
+    try {
+      if (!mounted) return;
+      _showLoadingDialog('Setting up fingerprint login...');
+
+      final success = await biometricService.saveCredentials(
+        userEmail,
+        passwordForStorage,
+        isTokenBased: isTokenBased,
+        authProvider: userProvider,
+      );
+
+      _dismissDialogIfOpen();
       if (!mounted) return;
 
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showResultDialog(success, biometricAuthProvider);
+    } catch (e) {
+      _dismissDialogIfOpen();
+      if (!mounted) return;
+      _showSnackBarError(scaffoldMessenger, 'Error: ${e.toString()}');
     }
+  }
+
+  void _showSnackBarError(
+      ScaffoldMessengerState scaffoldMessenger, String message) {
+    if (!mounted) return;
+    scaffoldMessenger.showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
   }
 
   // Helper method to show loading dialog

@@ -155,7 +155,7 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedCategory,
+                initialValue: _selectedCategory,
                 decoration: const InputDecoration(
                   labelText: 'Category (Optional)',
                   prefixIcon: Icon(Icons.category),
@@ -188,7 +188,7 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<BillRecurrence>(
-                value: _recurrence,
+                initialValue: _recurrence,
                 decoration: const InputDecoration(
                   labelText: 'Recurrence',
                   prefixIcon: Icon(Icons.repeat),

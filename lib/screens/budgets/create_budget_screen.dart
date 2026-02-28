@@ -92,16 +92,18 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     }
   }
 
-  void _submit() async {
+  /// Validates form fields and date selections.
+  /// Returns true if all validations pass, false otherwise.
+  bool _validateForm() {
     if (!_formKey.currentState!.validate()) {
-      return;
+      return false;
     }
 
     if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select start and end dates')),
       );
-      return;
+      return false;
     }
 
     if (_endDate!.isBefore(_startDate!) ||
@@ -109,8 +111,43 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('End date must be after start date')),
       );
-      return;
+      return false;
     }
+
+    return true;
+  }
+
+  /// Saves the budget (creates or updates) and returns success status.
+  Future<bool> _saveBudget(
+    FinanceProvider financeProvider,
+    String userId,
+    double amount,
+  ) async {
+    if (_isEditing) {
+      final updatedBudget = widget.existingBudget!.copyWith(
+        category: _selectedCategory,
+        amount: amount,
+        startDate: _startDate,
+        endDate: _endDate,
+      );
+      return await financeProvider.updateBudget(updatedBudget);
+    } else {
+      final newBudget = Budget(
+        id: '',
+        userId: userId,
+        category: _selectedCategory!,
+        amount: amount,
+        spent: 0.0,
+        startDate: _startDate!,
+        endDate: _endDate!,
+        createdAt: DateTime.now(),
+      );
+      return await financeProvider.addBudget(newBudget);
+    }
+  }
+
+  void _submit() async {
+    if (!_validateForm()) return;
 
     setState(() {
       _isLoading = true;
@@ -123,29 +160,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
     try {
       final amount = double.parse(_amountController.text.trim());
-      bool success;
-
-      if (_isEditing) {
-        final updatedBudget = widget.existingBudget!.copyWith(
-          category: _selectedCategory,
-          amount: amount,
-          startDate: _startDate,
-          endDate: _endDate,
-        );
-        success = await financeProvider.updateBudget(updatedBudget);
-      } else {
-        final newBudget = Budget(
-          id: '',
-          userId: userId,
-          category: _selectedCategory!,
-          amount: amount,
-          spent: 0.0,
-          startDate: _startDate!,
-          endDate: _endDate!,
-          createdAt: DateTime.now(),
-        );
-        success = await financeProvider.addBudget(newBudget);
-      }
+      final success = await _saveBudget(financeProvider, userId, amount);
 
       if (mounted) {
         if (success) {
@@ -175,6 +190,145 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     }
   }
 
+  String _formatDateLabel(DateTime? date, String placeholder) {
+    if (date == null) return placeholder;
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+
+  String _submitButtonLabel() {
+    return _isEditing ? 'Update Budget' : 'Create Budget';
+  }
+
+  Widget _buildCategoryDropdown() {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedCategory,
+      decoration: const InputDecoration(
+        labelText: 'Category',
+        hintText: 'Select a category',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.category),
+      ),
+      items: _expenseCategories.map((category) {
+        return DropdownMenuItem<String>(
+          value: category,
+          child: Text(category),
+        );
+      }).toList(),
+      onChanged: (value) {
+        setState(() {
+          _selectedCategory = value;
+        });
+      },
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select a category';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildAmountField() {
+    return TextFormField(
+      controller: _amountController,
+      decoration: const InputDecoration(
+        labelText: 'Budget Amount',
+        hintText: 'Enter budget amount',
+        prefixIcon: Icon(Icons.attach_money),
+        border: OutlineInputBorder(),
+      ),
+      keyboardType: TextInputType.number,
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Please enter a budget amount';
+        }
+        final amount = double.tryParse(value);
+        if (amount == null || amount <= 0) {
+          return 'Please enter a valid amount greater than 0';
+        }
+        return null;
+      },
+      textInputAction: TextInputAction.done,
+    );
+  }
+
+  Widget _buildDateSelector(
+    ThemeData theme, {
+    required String label,
+    required DateTime? date,
+    required String placeholder,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.calendar_today),
+          label: Text(_formatDateLabel(date, placeholder)),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 56),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubmitButton(ThemeData theme) {
+    return FilledButton(
+      onPressed: _submit,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(double.infinity, 56),
+      ),
+      child: Text(
+        _submitButtonLabel(),
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: theme.colorScheme.onPrimary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(ThemeData theme) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCategoryDropdown(),
+            const SizedBox(height: 16),
+            _buildAmountField(),
+            const SizedBox(height: 24),
+            _buildDateSelector(
+              theme,
+              label: 'Start Date',
+              date: _startDate,
+              placeholder: 'Select start date',
+              onPressed: () => _selectStartDate(context),
+            ),
+            const SizedBox(height: 16),
+            _buildDateSelector(
+              theme,
+              label: 'End Date',
+              date: _endDate,
+              placeholder: 'Select end date',
+              onPressed: () => _selectEndDate(context),
+            ),
+            const SizedBox(height: 32),
+            _buildSubmitButton(theme),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -184,127 +338,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
         title: Text(_isEditing ? 'Edit Budget' : 'Create Budget'),
       ),
       body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Category dropdown
-                      DropdownButtonFormField<String>(
-                        value: _selectedCategory,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                          hintText: 'Select a category',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.category),
-                        ),
-                        items: _expenseCategories.map((category) {
-                          return DropdownMenuItem<String>(
-                            value: category,
-                            child: Text(category),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedCategory = value;
-                          });
-                        },
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please select a category';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Amount input
-                      TextFormField(
-                        controller: _amountController,
-                        decoration: const InputDecoration(
-                          labelText: 'Budget Amount',
-                          hintText: 'Enter budget amount',
-                          prefixIcon: Icon(Icons.attach_money),
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter a budget amount';
-                          }
-                          final amount = double.tryParse(value);
-                          if (amount == null || amount <= 0) {
-                            return 'Please enter a valid amount greater than 0';
-                          }
-                          return null;
-                        },
-                        textInputAction: TextInputAction.done,
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Start date selector
-                      Text(
-                        'Start Date',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => _selectStartDate(context),
-                        icon: const Icon(Icons.calendar_today),
-                        label: Text(
-                          _startDate == null
-                              ? 'Select start date'
-                              : DateFormat('MMM dd, yyyy')
-                                  .format(_startDate!),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 56),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // End date selector
-                      Text(
-                        'End Date',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => _selectEndDate(context),
-                        icon: const Icon(Icons.calendar_today),
-                        label: Text(
-                          _endDate == null
-                              ? 'Select end date'
-                              : DateFormat('MMM dd, yyyy')
-                                  .format(_endDate!),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 56),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Submit button
-                      FilledButton(
-                        onPressed: _submit,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 56),
-                        ),
-                        child: Text(
-                          _isEditing ? 'Update Budget' : 'Create Budget',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+        child: _buildBody(theme),
       ),
     );
   }

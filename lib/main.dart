@@ -220,11 +220,11 @@ class _MyAppState extends State<MyApp> {
               theme: AppTheme.lightTheme(),
               darkTheme: AppTheme.darkTheme(),
               themeMode: themeProvider.themeMode,
-              home: Scaffold(
+              home: const Scaffold(
                 body: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
+                    children: [
                       LoadingIndicator(
                         size: 80.0,
                         message: 'Welcome to WealthWise',
@@ -296,11 +296,11 @@ class _MyAppState extends State<MyApp> {
   Widget _buildHomeScreen(AuthProvider authProvider) {
     // If loading, show loading screen
     if (authProvider.isLoading) {
-      return Scaffold(
+      return const Scaffold(
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               LoadingIndicator(
                 size: 80.0,
                 message: 'Welcome to WealthWise',

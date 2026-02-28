@@ -51,15 +51,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (password.length >= 8) strength += 0.2;
 
     // Contains uppercase
+    // ignore: deprecated_member_use
     if (password.contains(RegExp(r'[A-Z]'))) strength += 0.2;
 
     // Contains lowercase
+    // ignore: deprecated_member_use
     if (password.contains(RegExp(r'[a-z]'))) strength += 0.2;
 
     // Contains number
+    // ignore: deprecated_member_use
     if (password.contains(RegExp(r'[0-9]'))) strength += 0.2;
 
     // Contains special character
+    // ignore: deprecated_member_use
     if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) strength += 0.2;
 
     // Update UI

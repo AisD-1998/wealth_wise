@@ -10,7 +10,9 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/services/database_service.dart';
+import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/services/insights_service.dart';
+import 'package:wealth_wise/models/transaction.dart' as app_model;
 
 class PremiumAnalyticsScreen extends StatefulWidget {
   @override
@@ -72,12 +74,18 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
       appBar: AppBar(
         title: const Text('Premium Analytics'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : !_hasAccess
-              ? _buildPremiumPrompt()
-              : _buildPremiumAnalytics(),
+      body: _buildBody(),
     );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (!_hasAccess) {
+      return _buildPremiumPrompt();
+    }
+    return _buildPremiumAnalytics();
   }
 
   Widget _buildPremiumPrompt() {
@@ -139,7 +147,6 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
     final budgets = financeProvider.budgets;
     final goals = financeProvider.savingGoals;
 
-    // Compute real insights
     final healthScore = InsightsService.financialHealthScore(
       totalIncome: financeProvider.totalIncome,
       totalExpenses: financeProvider.totalExpenses,
@@ -157,163 +164,191 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Financial Health Score
           _buildHealthScoreCard(healthScore),
           const SizedBox(height: 16),
-
-          // Monthly spending trend (real data)
-          _buildCard(
-            title: 'Spending Trend (6 Months)',
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 200,
-                  child: LineChart(_buildSpendingTrendChart(monthlyData)),
-                ),
-                const SizedBox(height: 16),
-                if (momChange != null)
-                  _buildInsightItem(
-                    icon: momChange <= 0
-                        ? Icons.arrow_circle_down
-                        : Icons.arrow_circle_up,
-                    title:
-                        'Spending is ${momChange <= 0 ? 'down' : 'up'} ${momChange.abs().toStringAsFixed(1)}% from last month',
-                    color: momChange <= 0 ? Colors.green : Colors.orange,
-                  ),
-                _buildInsightItem(
-                  icon: Icons.check_circle,
-                  title:
-                      'Budget adherence: ${adherence.toStringAsFixed(0)}% of budgets on track',
-                  color: adherence >= 75 ? Colors.green : Colors.orange,
-                ),
-              ],
-            ),
-          ),
+          _buildSpendingTrendCard(monthlyData, momChange, adherence),
           const SizedBox(height: 16),
-
-          // Income vs Expenses (real data)
-          _buildCard(
-            title: 'Income vs Expenses',
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 200,
-                  child: BarChart(_buildIncomeVsExpenseChart(monthlyData)),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildLegendItem('Income', Colors.blue),
-                    const SizedBox(width: 16),
-                    _buildLegendItem('Expenses', Colors.red),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (financeProvider.totalIncome > 0)
-                  _buildInsightItem(
-                    icon: Icons.savings,
-                    title:
-                        'Savings rate: ${((financeProvider.totalIncome - financeProvider.totalExpenses) / financeProvider.totalIncome * 100).toStringAsFixed(1)}%',
-                    color: Colors.green,
-                  ),
-              ],
-            ),
-          ),
+          _buildIncomeVsExpenseCard(monthlyData, financeProvider),
           const SizedBox(height: 16),
-
-          // Category breakdown (pie chart)
-          if (categoryData.isNotEmpty)
-            _buildCard(
-              title: 'Spending by Category',
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 200,
-                    child: PieChart(_buildCategoryPieChart(categoryData)),
-                  ),
-                  const SizedBox(height: 16),
-                  ...categoryData.entries.take(5).map((e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: _getCategoryColor(
-                                    categoryData.keys.toList().indexOf(e.key)),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(e.key)),
-                            Text(CurrencyFormatter.formatWithContext(
-                                context, e.value)),
-                          ],
-                        ),
-                      )),
-                ],
-              ),
-            ),
+          if (categoryData.isNotEmpty) _buildCategoryBreakdownCard(categoryData),
           const SizedBox(height: 16),
-
-          // Weekday spending pattern
-          _buildCard(
-            title: 'Spending by Day of Week',
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 160,
-                  child: BarChart(_buildWeekdayChart(weekdayData)),
-                ),
-              ],
-            ),
-          ),
+          _buildWeekdaySpendingCard(weekdayData),
           const SizedBox(height: 16),
-
-          // Savings goal projections
           if (goals.isNotEmpty)
-            _buildCard(
-              title: 'Savings Projections',
-              child: Column(
-                children: goals.map((goal) {
-                  final months =
-                      InsightsService.monthsToGoal(goal, transactions);
-                  return _buildInsightItem(
-                    icon: goal.isCompleted
-                        ? Icons.check_circle
-                        : Icons.timelapse,
-                    title: goal.isCompleted
-                        ? '${goal.title} — Completed!'
-                        : months != null
-                            ? '${goal.title} — ~$months months to reach goal'
-                            : '${goal.title} — Add contributions to see projection',
-                    color: goal.isCompleted
-                        ? Colors.green
-                        : AppTheme.primaryGreen,
-                  );
-                }).toList(),
-              ),
+            _buildSavingsProjectionsCard(goals, transactions),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpendingTrendCard(
+    List<MonthlyTotal> monthlyData,
+    double? momChange,
+    double adherence,
+  ) {
+    return _buildCard(
+      title: 'Spending Trend (6 Months)',
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 200,
+            child: LineChart(_buildSpendingTrendChart(monthlyData)),
+          ),
+          const SizedBox(height: 16),
+          if (momChange != null)
+            _buildInsightItem(
+              icon: momChange <= 0
+                  ? Icons.arrow_circle_down
+                  : Icons.arrow_circle_up,
+              title:
+                  'Spending is ${momChange <= 0 ? 'down' : 'up'} ${momChange.abs().toStringAsFixed(1)}% from last month',
+              color: momChange <= 0 ? Colors.green : Colors.orange,
+            ),
+          _buildInsightItem(
+            icon: Icons.check_circle,
+            title:
+                'Budget adherence: ${adherence.toStringAsFixed(0)}% of budgets on track',
+            color: adherence >= 75 ? Colors.green : Colors.orange,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIncomeVsExpenseCard(
+    List<MonthlyTotal> monthlyData,
+    FinanceProvider financeProvider,
+  ) {
+    return _buildCard(
+      title: 'Income vs Expenses',
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 200,
+            child: BarChart(_buildIncomeVsExpenseChart(monthlyData)),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildLegendItem('Income', Colors.blue),
+              const SizedBox(width: 16),
+              _buildLegendItem('Expenses', Colors.red),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (financeProvider.totalIncome > 0)
+            _buildInsightItem(
+              icon: Icons.savings,
+              title:
+                  'Savings rate: ${((financeProvider.totalIncome - financeProvider.totalExpenses) / financeProvider.totalIncome * 100).toStringAsFixed(1)}%',
+              color: Colors.green,
             ),
         ],
       ),
     );
   }
 
+  Widget _buildCategoryBreakdownCard(Map<String, double> categoryData) {
+    return _buildCard(
+      title: 'Spending by Category',
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 200,
+            child: PieChart(_buildCategoryPieChart(categoryData)),
+          ),
+          const SizedBox(height: 16),
+          ...categoryData.entries.take(5).map((e) => _buildCategoryRow(
+                e.key,
+                e.value,
+                _getCategoryColor(
+                    categoryData.keys.toList().indexOf(e.key)),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryRow(String name, double value, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(name)),
+          Text(CurrencyFormatter.formatWithContext(context, value)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeekdaySpendingCard(List<double> weekdayData) {
+    return _buildCard(
+      title: 'Spending by Day of Week',
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 160,
+            child: BarChart(_buildWeekdayChart(weekdayData)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavingsProjectionsCard(
+    List<SavingGoal> goals,
+    List<app_model.Transaction> transactions,
+  ) {
+    return _buildCard(
+      title: 'Savings Projections',
+      child: Column(
+        children: goals.map((goal) {
+          final months = InsightsService.monthsToGoal(goal, transactions);
+          final goalTitle = _goalProjectionTitle(goal, months);
+          return _buildInsightItem(
+            icon: goal.isCompleted ? Icons.check_circle : Icons.timelapse,
+            title: goalTitle,
+            color: goal.isCompleted ? Colors.green : AppTheme.primaryGreen,
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  String _goalProjectionTitle(SavingGoal goal, int? months) {
+    if (goal.isCompleted) {
+      return '${goal.title} — Completed!';
+    }
+    if (months != null) {
+      return '${goal.title} — ~$months months to reach goal';
+    }
+    return '${goal.title} — Add contributions to see projection';
+  }
+
+  Color _healthScoreColor(double score) {
+    if (score >= 80) return Colors.green;
+    if (score >= 60) return AppTheme.primaryGreen;
+    if (score >= 40) return Colors.orange;
+    return Colors.red;
+  }
+
   Widget _buildHealthScoreCard(double score) {
     final label = InsightsService.healthScoreLabel(score);
-    final color = score >= 80
-        ? Colors.green
-        : score >= 60
-            ? AppTheme.primaryGreen
-            : score >= 40
-                ? Colors.orange
-                : Colors.red;
+    final color = _healthScoreColor(score);
 
     return Card(
       elevation: 2,
@@ -384,11 +419,11 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
         1.2;
 
     return LineChartData(
-      gridData: FlGridData(show: false),
+      gridData: const FlGridData(show: false),
       titlesData: FlTitlesData(
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -415,7 +450,7 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
           color: AppTheme.primaryGreen,
           barWidth: 3,
           isStrokeCapRound: true,
-          dotData: FlDotData(show: true),
+          dotData: const FlDotData(show: true),
           belowBarData: BarAreaData(
             show: true,
             color: AppTheme.primaryGreen.withValues(alpha: 50),
@@ -435,11 +470,11 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
     return BarChartData(
       alignment: BarChartAlignment.spaceAround,
       maxY: maxY > 0 ? maxY : 100,
-      gridData: FlGridData(show: false),
+      gridData: const FlGridData(show: false),
       titlesData: FlTitlesData(
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -514,11 +549,11 @@ class _PremiumAnalyticsScreenState extends State<PremiumAnalyticsScreen> {
     return BarChartData(
       alignment: BarChartAlignment.spaceAround,
       maxY: maxY > 0 ? maxY : 100,
-      gridData: FlGridData(show: false),
+      gridData: const FlGridData(show: false),
       titlesData: FlTitlesData(
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,

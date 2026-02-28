@@ -20,6 +20,7 @@ import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 import 'package:wealth_wise/utils/currency_formatter.dart';
+import 'package:wealth_wise/models/bill_reminder.dart';
 import 'package:wealth_wise/models/budget_alert.dart';
 import 'package:wealth_wise/controllers/feature_access_controller.dart';
 import 'package:wealth_wise/services/database_service.dart';
@@ -29,6 +30,7 @@ import 'package:wealth_wise/screens/analytics/premium_analytics_screen.dart';
 import 'package:wealth_wise/screens/investments/investments_screen.dart';
 import 'package:wealth_wise/screens/reports/monthly_snapshot_screen.dart';
 import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
+import 'package:wealth_wise/constants/app_strings.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -344,13 +346,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
           children: [
-            if (authProvider.user != null)
-              Text(
-                'Hello, ${authProvider.user!.displayName ?? 'User'}!',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+            _buildGreetingSection(theme, authProvider),
             const SizedBox(height: 16.0),
             BalanceCard(
               balance: financeProvider.totalBalance,
@@ -378,46 +374,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
             ],
 
             // Quick Actions Section
-            Text(
-              'Quick Actions',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16.0),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.account_balance_wallet_outlined,
-                    title: 'Budgets',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const BudgetsScreen()),
-                    ),
-                    color: theme.colorScheme.tertiaryContainer,
-                    iconColor: theme.colorScheme.tertiary,
-                  ),
-                ),
-                const SizedBox(width: 12.0),
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.savings_outlined,
-                    title: 'Savings Goals',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const SavingsScreen()),
-                    ),
-                    color: theme.colorScheme.primaryContainer,
-                    iconColor: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
+            _buildQuickActionsSection(theme),
 
             const SizedBox(height: 24.0),
 
@@ -431,159 +388,237 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
             _buildMonthlySnapshotCard(context),
             const SizedBox(height: 24.0),
 
-            // Recent Transactions & Insights
-            Row(
-              children: [
-                Text(
-                  'Recent Transactions',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const TransactionsScreen()),
-                  ),
-                  child: const Text('See All'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8.0),
-            if (financeProvider.transactions.isEmpty)
-              _buildEmptyState(
-                context,
-                'No recent transactions',
-                'Your recent transactions will appear here',
-                Icons.receipt_long_outlined,
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(16.0),
-                ),
-                child: ListView.separated(
-                  physics: const NeverScrollableScrollPhysics(),
-                  shrinkWrap: true,
-                  itemCount: financeProvider.transactions.length > 3
-                      ? 3
-                      : financeProvider.transactions.length,
-                  separatorBuilder: (context, index) => Divider(
-                    height: 1,
-                    indent: 16.0,
-                    endIndent: 16.0,
-                  ),
-                  itemBuilder: (context, index) {
-                    final transaction = financeProvider.transactions[index];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor:
-                            transaction.type == TransactionType.expense
-                                ? theme.colorScheme.errorContainer
-                                : theme.colorScheme.primaryContainer,
-                        child: Icon(
-                          transaction.type == TransactionType.expense
-                              ? Icons.arrow_downward
-                              : Icons.arrow_upward,
-                          color: transaction.type == TransactionType.expense
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                        ),
-                      ),
-                      title: Text(
-                        transaction.title,
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                      subtitle: Text(
-                        DateFormat('MMM dd, yyyy').format(transaction.date),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      trailing: Text(
-                        CurrencyFormatter.formatWithContext(
-                            context, transaction.amount),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: transaction.type == TransactionType.expense
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      onTap: () {
-                        _showTransactionOptions(context, transaction);
-                      },
-                      onLongPress: () async {
-                        final confirm = await UIHelpers.showConfirmationDialog(
-                          context: context,
-                          title: 'Delete Transaction',
-                          message:
-                              'Are you sure you want to delete this transaction?',
-                          confirmText: 'Delete',
-                          cancelText: 'Cancel',
-                        );
-
-                        if (confirm && context.mounted) {
-                          _deleteTransaction(transaction, context);
-                        }
-                      },
-                    );
-                  },
-                ),
-              ),
+            // Recent Transactions
+            _buildRecentTransactionsSection(theme, financeProvider),
 
             const SizedBox(height: 24.0),
 
             // Insights Section
-            Row(
-              children: [
-                Text(
-                  'Financial Insights',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                Consumer<SubscriptionProvider>(
-                  builder: (context, subProvider, _) {
-                    if (subProvider.isSubscribed) {
-                      return TextButton(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  const PremiumAnalyticsScreen()),
-                        ),
-                        child: const Text('See All'),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
-              ],
-            ),
+            _buildInsightsHeader(theme),
             const SizedBox(height: 16.0),
-            if (authProvider.user == null)
-              _buildEmptyState(
-                context,
-                'Sign in to view insights',
-                'Create an account to track your finances',
-                Icons.insights_outlined,
-              )
-            else if (financeProvider.transactions.isEmpty)
-              _buildEmptyState(
-                context,
-                'No data available',
-                'Add transactions to see your financial insights',
-                Icons.insights_outlined,
-              )
-            else
-              _buildInsightsSection(context, financeProvider),
+            _buildInsightsContent(authProvider, financeProvider),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildGreetingSection(ThemeData theme, AuthProvider authProvider) {
+    if (authProvider.user == null) return const SizedBox.shrink();
+    return Text(
+      'Hello, ${authProvider.user!.displayName ?? 'User'}!',
+      style: theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildQuickActionsSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Actions',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16.0),
+        Row(
+          children: [
+            Expanded(
+              child: _buildActionCard(
+                context,
+                icon: Icons.account_balance_wallet_outlined,
+                title: 'Budgets',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const BudgetsScreen()),
+                ),
+                color: theme.colorScheme.tertiaryContainer,
+                iconColor: theme.colorScheme.tertiary,
+              ),
+            ),
+            const SizedBox(width: 12.0),
+            Expanded(
+              child: _buildActionCard(
+                context,
+                icon: Icons.savings_outlined,
+                title: 'Savings Goals',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const SavingsScreen()),
+                ),
+                color: theme.colorScheme.primaryContainer,
+                iconColor: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentTransactionsSection(
+      ThemeData theme, FinanceProvider financeProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Recent Transactions',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const TransactionsScreen()),
+              ),
+              child: Text(AppStrings.kSeeAll),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8.0),
+        if (financeProvider.transactions.isEmpty)
+          _buildEmptyState(
+            context,
+            'No recent transactions',
+            'Your recent transactions will appear here',
+            Icons.receipt_long_outlined,
+          )
+        else
+          _buildRecentTransactionsList(theme, financeProvider),
+      ],
+    );
+  }
+
+  Widget _buildRecentTransactionsList(
+      ThemeData theme, FinanceProvider financeProvider) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16.0),
+      ),
+      child: ListView.separated(
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        itemCount: financeProvider.transactions.length > 3
+            ? 3
+            : financeProvider.transactions.length,
+        separatorBuilder: (context, index) => const Divider(
+          height: 1,
+          indent: 16.0,
+          endIndent: 16.0,
+        ),
+        itemBuilder: (context, index) {
+          final transaction = financeProvider.transactions[index];
+          return _buildTransactionTile(theme, transaction);
+        },
+      ),
+    );
+  }
+
+  Widget _buildTransactionTile(ThemeData theme, Transaction transaction) {
+    final isExpense = transaction.type == TransactionType.expense;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: isExpense
+            ? theme.colorScheme.errorContainer
+            : theme.colorScheme.primaryContainer,
+        child: Icon(
+          isExpense ? Icons.arrow_downward : Icons.arrow_upward,
+          color: isExpense ? theme.colorScheme.error : theme.colorScheme.primary,
+        ),
+      ),
+      title: Text(
+        transaction.title,
+        style: theme.textTheme.bodyLarge,
+      ),
+      subtitle: Text(
+        DateFormat('MMM dd, yyyy').format(transaction.date),
+        style: theme.textTheme.bodySmall,
+      ),
+      trailing: Text(
+        CurrencyFormatter.formatWithContext(context, transaction.amount),
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: isExpense ? theme.colorScheme.error : theme.colorScheme.primary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      onTap: () {
+        _showTransactionOptions(context, transaction);
+      },
+      onLongPress: () async {
+        final confirm = await UIHelpers.showConfirmationDialog(
+          context: context,
+          title: AppStrings.kDeleteTransaction,
+          message: AppStrings.kDeleteConfirmation,
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+        );
+
+        if (confirm && context.mounted) {
+          _deleteTransaction(transaction, context);
+        }
+      },
+    );
+  }
+
+  Widget _buildInsightsHeader(ThemeData theme) {
+    return Row(
+      children: [
+        Text(
+          'Financial Insights',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const Spacer(),
+        Consumer<SubscriptionProvider>(
+          builder: (context, subProvider, _) {
+            if (subProvider.isSubscribed) {
+              return TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const PremiumAnalyticsScreen()),
+                ),
+                child: Text(AppStrings.kSeeAll),
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInsightsContent(
+      AuthProvider authProvider, FinanceProvider financeProvider) {
+    if (authProvider.user == null) {
+      return _buildEmptyState(
+        context,
+        'Sign in to view insights',
+        'Create an account to track your finances',
+        Icons.insights_outlined,
+      );
+    }
+    if (financeProvider.transactions.isEmpty) {
+      return _buildEmptyState(
+        context,
+        'No data available',
+        'Add transactions to see your financial insights',
+        Icons.insights_outlined,
+      );
+    }
+    return _buildInsightsSection(context, financeProvider);
   }
 
   Widget _buildActionCard(
@@ -703,15 +738,15 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text('Delete Transaction',
-                    style: TextStyle(color: Colors.red)),
+                title: Text(AppStrings.kDeleteTransaction,
+                    style: const TextStyle(color: Colors.red)),
                 onTap: () async {
                   Navigator.pop(context);
                   final confirm = await UIHelpers.showConfirmationDialog(
                     context: context,
-                    title: 'Delete Transaction',
+                    title: AppStrings.kDeleteTransaction,
                     message:
-                        'Are you sure you want to delete this transaction?',
+                        AppStrings.kDeleteConfirmation,
                     confirmText: 'Delete',
                     cancelText: 'Cancel',
                   );
@@ -813,7 +848,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
 
                     final goal = snapshot.data;
                     if (goal == null) {
-                      return DetailItem(
+                      return const DetailItem(
                         icon: Icons.savings,
                         title: 'Saving Goal',
                         value: 'Unknown or deleted goal',
@@ -916,163 +951,181 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     BuildContext context,
     FinanceProvider financeProvider,
   ) {
-    final theme = Theme.of(context);
-
     return Consumer<SubscriptionProvider>(
       builder: (context, subProvider, _) {
         final isPremium = subProvider.isSubscribed;
 
-        // Free users see teaser
         if (!isPremium) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 24.0),
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                    color: theme.colorScheme.primary.withValues(alpha: 60)),
-              ),
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
-              child: InkWell(
-                onTap: () {
-                  PremiumFeaturePrompt.showPremiumDialog(
-                    context,
-                    featureName: 'Bill Reminders',
-                    description:
-                        'Never miss a payment. Track recurring bills, get due date alerts, and log payments automatically.',
-                    icon: Icons.receipt_long,
-                  );
-                },
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.receipt_long,
-                          color: theme.colorScheme.primary, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Bill Reminders',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              'Never miss a payment — upgrade to Premium',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.lock_outline,
-                          size: 18, color: theme.colorScheme.primary),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
+          return _buildBillsTeaser(context);
         }
 
-        // Premium users see actual upcoming bills
         final upcoming = financeProvider.upcomingBills;
         if (upcoming.isEmpty) return const SizedBox.shrink();
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 24.0),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'Upcoming Bills',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const BillsScreen()),
-                    ),
-                    child: const Text('See All'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ...upcoming.take(3).map((bill) {
-                final daysUntil = bill.daysUntilDue;
-                final isOverdue = bill.isOverdue;
-
-                return Card(
-                  elevation: 0,
-                  margin: const EdgeInsets.only(bottom: 6),
-                  color: theme.colorScheme.surfaceContainerLow,
-                  child: ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: isOverdue
-                          ? Colors.red.withValues(alpha: 30)
-                          : daysUntil <= 3
-                              ? Colors.orange.withValues(alpha: 30)
-                              : theme.colorScheme.primaryContainer,
-                      child: Icon(
-                        isOverdue
-                            ? Icons.warning_amber_rounded
-                            : Icons.receipt_long,
-                        size: 18,
-                        color: isOverdue
-                            ? Colors.red
-                            : daysUntil <= 3
-                                ? Colors.orange
-                                : theme.colorScheme.primary,
-                      ),
-                    ),
-                    title: Text(
-                      bill.title,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    subtitle: Text(
-                      isOverdue
-                          ? '${daysUntil.abs()} days overdue'
-                          : daysUntil == 0
-                              ? 'Due today'
-                              : 'Due in $daysUntil days',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isOverdue ? Colors.red : Colors.grey[600],
-                      ),
-                    ),
-                    trailing: Text(
-                      CurrencyFormatter.formatWithContext(
-                          context, bill.amount),
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const BillsScreen()),
-                    ),
-                  ),
-                );
-              }),
-            ],
-          ),
-        );
+        return _buildBillsList(context, upcoming);
       },
     );
+  }
+
+  Widget _buildBillsTeaser(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+              color: theme.colorScheme.primary.withValues(alpha: 60)),
+        ),
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
+        child: InkWell(
+          onTap: () {
+            PremiumFeaturePrompt.showPremiumDialog(
+              context,
+              featureName: 'Bill Reminders',
+              description:
+                  'Never miss a payment. Track recurring bills, get due date alerts, and log payments automatically.',
+              icon: Icons.receipt_long,
+            );
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(Icons.receipt_long,
+                    color: theme.colorScheme.primary, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Bill Reminders',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Never miss a payment — upgrade to Premium',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.lock_outline,
+                    size: 18, color: theme.colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBillsList(BuildContext context, List<BillReminder> upcoming) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                'Upcoming Bills',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const BillsScreen()),
+                ),
+                child: Text(AppStrings.kSeeAll),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...upcoming.take(3).map((bill) => _buildBillCard(context, bill)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBillCard(BuildContext context, BillReminder bill) {
+    final theme = Theme.of(context);
+    final daysUntil = bill.daysUntilDue;
+    final isOverdue = bill.isOverdue;
+    final billStatusBg =
+        _billStatusBackgroundColor(isOverdue, daysUntil, theme);
+    final billStatusFg =
+        _billStatusForegroundColor(isOverdue, daysUntil, theme);
+    final billDueLabel = _billDueText(isOverdue, daysUntil);
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 6),
+      color: theme.colorScheme.surfaceContainerLow,
+      child: ListTile(
+        dense: true,
+        leading: CircleAvatar(
+          radius: 18,
+          backgroundColor: billStatusBg,
+          child: Icon(
+            isOverdue ? Icons.warning_amber_rounded : Icons.receipt_long,
+            size: 18,
+            color: billStatusFg,
+          ),
+        ),
+        title: Text(
+          bill.title,
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Text(
+          billDueLabel,
+          style: TextStyle(
+            fontSize: 12,
+            color: isOverdue ? Colors.red : Colors.grey[600],
+          ),
+        ),
+        trailing: Text(
+          CurrencyFormatter.formatWithContext(context, bill.amount),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const BillsScreen()),
+        ),
+      ),
+    );
+  }
+
+  Color _billStatusBackgroundColor(
+      bool isOverdue, int daysUntil, ThemeData theme) {
+    if (isOverdue) return Colors.red.withValues(alpha: 30);
+    if (daysUntil <= 3) return Colors.orange.withValues(alpha: 30);
+    return theme.colorScheme.primaryContainer;
+  }
+
+  Color _billStatusForegroundColor(
+      bool isOverdue, int daysUntil, ThemeData theme) {
+    if (isOverdue) return Colors.red;
+    if (daysUntil <= 3) return Colors.orange;
+    return theme.colorScheme.primary;
+  }
+
+  String _billDueText(bool isOverdue, int daysUntil) {
+    if (isOverdue) return '${daysUntil.abs()} days overdue';
+    if (daysUntil == 0) return 'Due today';
+    return 'Due in $daysUntil days';
   }
 
   Widget _buildBudgetAlertCard(
@@ -1169,113 +1222,11 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
       builder: (context, subProvider, _) {
         final isPremium = subProvider.isSubscribed;
 
-        // Compute premium insights
-        double? healthScore;
-        String? healthLabel;
-        double? momChange;
-        double? adherenceScore;
-
-        if (isPremium) {
-          healthScore = InsightsService.financialHealthScore(
-            totalIncome: financeProvider.totalIncome,
-            totalExpenses: financeProvider.totalExpenses,
-            budgets: financeProvider.budgets,
-            goals: financeProvider.savingGoals,
-          );
-          healthLabel = InsightsService.healthScoreLabel(healthScore);
-          momChange = InsightsService.monthOverMonthChange(
-              financeProvider.transactions);
-          adherenceScore =
-              InsightsService.budgetAdherenceScore(financeProvider.budgets);
-        }
-
         return Column(
           children: [
-            // Row 1: Basic insights (free)
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInsightCard(
-                    context,
-                    icon: Icons.savings_outlined,
-                    title: 'Savings Rate',
-                    value: '$savingsRate%',
-                    color: theme.colorScheme.tertiaryContainer,
-                    iconColor: theme.colorScheme.tertiary,
-                  ),
-                ),
-                const SizedBox(width: 12.0),
-                Expanded(
-                  child: _buildInsightCard(
-                    context,
-                    icon: Icons.trending_up,
-                    title: 'Top Category',
-                    value: topCategory,
-                    color: theme.colorScheme.secondaryContainer,
-                    iconColor: theme.colorScheme.secondary,
-                  ),
-                ),
-              ],
-            ),
-
-            // Premium insights
-            if (isPremium) ...[
-              const SizedBox(height: 12.0),
-
-              // Row 2: Health Score + Month-over-Month
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildHealthScoreInsight(
-                      context,
-                      score: healthScore!,
-                      label: healthLabel!,
-                    ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: _buildInsightCard(
-                      context,
-                      icon: momChange != null && momChange < 0
-                          ? Icons.trending_down
-                          : Icons.trending_up,
-                      title: 'vs Last Month',
-                      value: momChange != null
-                          ? '${momChange >= 0 ? '+' : ''}${momChange.toStringAsFixed(1)}%'
-                          : 'No data',
-                      color: momChange != null && momChange < 0
-                          ? Colors.green.shade50
-                          : theme.colorScheme.errorContainer,
-                      iconColor: momChange != null && momChange < 0
-                          ? Colors.green
-                          : theme.colorScheme.error,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 12.0),
-
-              // Row 3: Budget Adherence
-              _buildInsightCard(
-                context,
-                icon: Icons.check_circle_outline,
-                title: 'Budget Adherence',
-                value: '${adherenceScore!.toStringAsFixed(0)}%',
-                color: adherenceScore >= 75
-                    ? Colors.green.shade50
-                    : adherenceScore >= 50
-                        ? Colors.orange.shade50
-                        : Colors.red.shade50,
-                iconColor: adherenceScore >= 75
-                    ? Colors.green
-                    : adherenceScore >= 50
-                        ? Colors.orange
-                        : Colors.red,
-              ),
-            ],
-
-            // Free user teaser
+            _buildBasicInsightsRow(context, theme, savingsRate, topCategory),
+            if (isPremium)
+              _buildPremiumInsights(context, theme, financeProvider),
             if (!isPremium) ...[
               const SizedBox(height: 12.0),
               _buildPremiumInsightsTeaser(context),
@@ -1286,19 +1237,133 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     );
   }
 
+  Widget _buildBasicInsightsRow(
+      BuildContext context, ThemeData theme, String savingsRate, String topCategory) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildInsightCard(
+            context,
+            icon: Icons.savings_outlined,
+            title: 'Savings Rate',
+            value: '$savingsRate%',
+            color: theme.colorScheme.tertiaryContainer,
+            iconColor: theme.colorScheme.tertiary,
+          ),
+        ),
+        const SizedBox(width: 12.0),
+        Expanded(
+          child: _buildInsightCard(
+            context,
+            icon: Icons.trending_up,
+            title: 'Top Category',
+            value: topCategory,
+            color: theme.colorScheme.secondaryContainer,
+            iconColor: theme.colorScheme.secondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPremiumInsights(
+      BuildContext context, ThemeData theme, FinanceProvider financeProvider) {
+    final healthScore = InsightsService.financialHealthScore(
+      totalIncome: financeProvider.totalIncome,
+      totalExpenses: financeProvider.totalExpenses,
+      budgets: financeProvider.budgets,
+      goals: financeProvider.savingGoals,
+    );
+    final healthLabel = InsightsService.healthScoreLabel(healthScore);
+    final momChange =
+        InsightsService.monthOverMonthChange(financeProvider.transactions);
+    final adherenceScore =
+        InsightsService.budgetAdherenceScore(financeProvider.budgets);
+
+    return Column(
+      children: [
+        const SizedBox(height: 12.0),
+        Row(
+          children: [
+            Expanded(
+              child: _buildHealthScoreInsight(
+                context,
+                score: healthScore,
+                label: healthLabel,
+              ),
+            ),
+            const SizedBox(width: 12.0),
+            Expanded(
+              child: _buildMomChangeInsight(context, momChange, theme),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12.0),
+        _buildBudgetAdherenceInsight(context, adherenceScore),
+      ],
+    );
+  }
+
+  Widget _buildMomChangeInsight(
+      BuildContext context, double? momChange, ThemeData theme) {
+    final isDown = momChange != null && momChange < 0;
+    String value;
+    if (momChange != null) {
+      final prefix = momChange >= 0 ? '+' : '';
+      value = '$prefix${momChange.toStringAsFixed(1)}%';
+    } else {
+      value = 'No data';
+    }
+
+    return _buildInsightCard(
+      context,
+      icon: isDown ? Icons.trending_down : Icons.trending_up,
+      title: 'vs Last Month',
+      value: value,
+      color: isDown ? Colors.green.shade50 : theme.colorScheme.errorContainer,
+      iconColor: isDown ? Colors.green : theme.colorScheme.error,
+    );
+  }
+
+  Widget _buildBudgetAdherenceInsight(
+      BuildContext context, double adherenceScore) {
+    Color bgColor;
+    Color fgColor;
+    if (adherenceScore >= 75) {
+      bgColor = Colors.green.shade50;
+      fgColor = Colors.green;
+    } else if (adherenceScore >= 50) {
+      bgColor = Colors.orange.shade50;
+      fgColor = Colors.orange;
+    } else {
+      bgColor = Colors.red.shade50;
+      fgColor = Colors.red;
+    }
+
+    return _buildInsightCard(
+      context,
+      icon: Icons.check_circle_outline,
+      title: 'Budget Adherence',
+      value: '${adherenceScore.toStringAsFixed(0)}%',
+      color: bgColor,
+      iconColor: fgColor,
+    );
+  }
+
+  Color _healthScoreColor(double score) {
+    if (score >= 80) return Colors.green;
+    if (score >= 60) return Colors.lightGreen;
+    if (score >= 40) return Colors.orange;
+    return Colors.red;
+  }
+
   Widget _buildHealthScoreInsight(
     BuildContext context, {
     required double score,
     required String label,
   }) {
     final theme = Theme.of(context);
-    final scoreColor = score >= 80
-        ? Colors.green
-        : score >= 60
-            ? Colors.lightGreen
-            : score >= 40
-                ? Colors.orange
-                : Colors.red;
+    final scoreColor = _healthScoreColor(score);
 
     return Card(
       elevation: 0,
@@ -1553,173 +1618,179 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     BuildContext context,
     FinanceProvider financeProvider,
   ) {
-    final theme = Theme.of(context);
-
     return Consumer<SubscriptionProvider>(
       builder: (context, subProvider, _) {
         final isPremium = subProvider.isSubscribed;
 
-        // Free users see teaser
         if (!isPremium) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 24.0),
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                    color: theme.colorScheme.primary.withValues(alpha: 60)),
-              ),
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
-              child: InkWell(
-                onTap: () {
-                  PremiumFeaturePrompt.showPremiumDialog(
-                    context,
-                    featureName: 'Investment Tracking',
-                    description:
-                        'Track your investment portfolio, monitor gains & losses, and see allocation breakdowns with Premium.',
-                    icon: Icons.show_chart,
-                  );
-                },
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.show_chart,
-                          color: theme.colorScheme.primary, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Investment Tracking',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              'Track your portfolio — upgrade to Premium',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.lock_outline,
-                          size: 18, color: theme.colorScheme.primary),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
+          return _buildPortfolioTeaser(context);
         }
 
-        // Premium users with no investments
         if (financeProvider.investments.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        // Premium users see portfolio summary
-        final totalValue = financeProvider.portfolioTotalValue;
-        final totalCost = financeProvider.portfolioTotalCost;
-        final gainLoss = totalValue - totalCost;
-        final gainLossPercent =
-            totalCost > 0 ? (gainLoss / totalCost) * 100 : 0.0;
+        return _buildPortfolioSummary(context, financeProvider);
+      },
+    );
+  }
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 24.0),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'Portfolio',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const InvestmentsScreen()),
-                    ),
-                    child: const Text('See All'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Card(
-                elevation: 0,
-                color: theme.colorScheme.surfaceContainerLow,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
+  Widget _buildPortfolioTeaser(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+              color: theme.colorScheme.primary.withValues(alpha: 60)),
+        ),
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
+        child: InkWell(
+          onTap: () {
+            PremiumFeaturePrompt.showPremiumDialog(
+              context,
+              featureName: 'Investment Tracking',
+              description:
+                  'Track your investment portfolio, monitor gains & losses, and see allocation breakdowns with Premium.',
+              icon: Icons.show_chart,
+            );
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(Icons.show_chart,
+                    color: theme.colorScheme.primary, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.show_chart,
-                          color: theme.colorScheme.primary, size: 32),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              CurrencyFormatter.formatWithContext(
-                                  context, totalValue),
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Icon(
-                                  gainLoss >= 0
-                                      ? Icons.trending_up
-                                      : Icons.trending_down,
-                                  size: 16,
-                                  color: gainLoss >= 0
-                                      ? Colors.green
-                                      : Colors.red,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${gainLoss >= 0 ? '+' : ''}${gainLossPercent.toStringAsFixed(1)}%',
-                                  style: TextStyle(
-                                    color: gainLoss >= 0
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                      Text(
+                        'Investment Tracking',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        '${financeProvider.investments.length} holdings',
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 12,
+                        'Track your portfolio — upgrade to Premium',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
                 ),
+                Icon(Icons.lock_outline,
+                    size: 18, color: theme.colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortfolioSummary(
+      BuildContext context, FinanceProvider financeProvider) {
+    final theme = Theme.of(context);
+    final totalValue = financeProvider.portfolioTotalValue;
+    final totalCost = financeProvider.portfolioTotalCost;
+    final gainLoss = totalValue - totalCost;
+    final gainLossPercent =
+        totalCost > 0 ? (gainLoss / totalCost) * 100 : 0.0;
+    final isPositive = gainLoss >= 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                'Portfolio',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const InvestmentsScreen()),
+                ),
+                child: Text(AppStrings.kSeeAll),
               ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 8),
+          _buildPortfolioCard(
+              theme, totalValue, isPositive, gainLossPercent, financeProvider),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPortfolioCard(ThemeData theme, double totalValue,
+      bool isPositive, double gainLossPercent, FinanceProvider financeProvider) {
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.show_chart,
+                color: theme.colorScheme.primary, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    CurrencyFormatter.formatWithContext(context, totalValue),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(
+                        isPositive ? Icons.trending_up : Icons.trending_down,
+                        size: 16,
+                        color: isPositive ? Colors.green : Colors.red,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${isPositive ? '+' : ''}${gainLossPercent.toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          color: isPositive ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${financeProvider.investments.length} holdings',
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

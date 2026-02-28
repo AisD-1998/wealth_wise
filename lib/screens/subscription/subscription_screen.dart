@@ -298,7 +298,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final subtextColor =
         isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600;
-    final cardColor = isDarkMode ? Colors.grey.shade900 : Colors.white;
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -328,10 +327,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
         // Subscription Plans
         canShowSideBySide
-            ? _buildSideBySidePlans(
-                provider, isDarkMode, textColor, subtextColor, cardColor)
-            : _buildStackedPlans(
-                provider, isDarkMode, textColor, subtextColor, cardColor),
+            ? _buildSideBySidePlans(provider)
+            : _buildStackedPlans(provider),
 
         const SizedBox(height: 30),
 
@@ -442,8 +439,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   // Side by side subscription plans (for larger screens)
-  Widget _buildSideBySidePlans(SubscriptionProvider provider, bool isDarkMode,
-      Color textColor, Color subtextColor, Color cardColor) {
+  Widget _buildSideBySidePlans(SubscriptionProvider provider) {
     final monthlyPrice = _getProductPrice(provider, SubscriptionConstants.monthlyProductId);
     final annualPrice = _getProductPrice(provider, SubscriptionConstants.annualProductId);
 
@@ -456,10 +452,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             subtitle: 'per month',
             isSelected: _selectedPlanIndex == 1,
             features: ['Basic features', 'No ads'],
-            isDarkMode: isDarkMode,
-            textColor: textColor,
-            subtextColor: subtextColor,
-            cardColor: cardColor,
             onTap: () {
               setState(() {
                 _selectedPlanIndex = 1;
@@ -476,10 +468,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             subtitle: 'per year',
             isSelected: _selectedPlanIndex == 2,
             features: ['All features', 'Priority support'],
-            isDarkMode: isDarkMode,
-            textColor: textColor,
-            subtextColor: subtextColor,
-            cardColor: cardColor,
             onTap: () {
               setState(() {
                 _selectedPlanIndex = 2;
@@ -494,8 +482,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   // Stacked subscription plans (for smaller screens)
-  Widget _buildStackedPlans(SubscriptionProvider provider, bool isDarkMode,
-      Color textColor, Color subtextColor, Color cardColor) {
+  Widget _buildStackedPlans(SubscriptionProvider provider) {
     final monthlyPrice = _getProductPrice(provider, SubscriptionConstants.monthlyProductId);
     final annualPrice = _getProductPrice(provider, SubscriptionConstants.annualProductId);
 
@@ -507,10 +494,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           subtitle: 'per month',
           isSelected: _selectedPlanIndex == 1,
           features: [],
-          isDarkMode: isDarkMode,
-          textColor: textColor,
-          subtextColor: subtextColor,
-          cardColor: cardColor,
           onTap: () {
             setState(() {
               _selectedPlanIndex = 1;
@@ -525,10 +508,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           subtitle: 'per year',
           isSelected: _selectedPlanIndex == 2,
           features: [],
-          isDarkMode: isDarkMode,
-          textColor: textColor,
-          subtextColor: subtextColor,
-          cardColor: cardColor,
           onTap: () {
             setState(() {
               _selectedPlanIndex = 2;
@@ -548,13 +527,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     required String subtitle,
     required bool isSelected,
     required List<String> features,
-    required bool isDarkMode,
-    required Color textColor,
-    required Color subtextColor,
-    required Color cardColor,
     required VoidCallback onTap,
     String? discount,
   }) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
+    final subtextColor = theme.colorScheme.onSurfaceVariant;
+    final cardColor = isDarkMode ? Colors.grey.shade900 : Colors.white;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -593,14 +574,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       color: AppTheme.primaryGreen.withValues(alpha: 51),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
                         Icon(
                           Icons.check_circle,
                           size: 14,
                           color: AppTheme.primaryGreen,
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4),
                         Text(
                           'Selected',
                           style: TextStyle(
@@ -676,7 +657,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 shape: BoxShape.circle,
                 color: AppTheme.primaryGreen.withValues(alpha: 26),
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.check_circle,
                 color: AppTheme.primaryGreen,
                 size: 20,
