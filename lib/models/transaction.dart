@@ -6,6 +6,14 @@ enum TransactionType {
   expense,
 }
 
+enum RecurrencePattern {
+  daily,
+  weekly,
+  biweekly,
+  monthly,
+  yearly,
+}
+
 class Transaction {
   final String? id;
   final String title;
@@ -20,6 +28,14 @@ class Transaction {
   final String? goalId;
   final double?
       contributionPercentage; // Percentage of income to contribute to goal
+
+  // Recurring transaction fields
+  final bool isRecurring;
+  final RecurrencePattern? recurrencePattern;
+  final DateTime? recurrenceEndDate;
+  final String?
+      parentTransactionId; // Links generated entries back to the template
+  final bool isPaused; // Allows pausing without deleting
 
   static final Logger _logger = Logger('Transaction');
 
@@ -36,6 +52,11 @@ class Transaction {
     this.includedInTotals = true,
     this.goalId,
     this.contributionPercentage = 100.0, // Default to 100% if not specified
+    this.isRecurring = false,
+    this.recurrencePattern,
+    this.recurrenceEndDate,
+    this.parentTransactionId,
+    this.isPaused = false,
   });
 
   factory Transaction.fromMap(Map<String, dynamic> map, String id) {
@@ -56,6 +77,18 @@ class Transaction {
         goalId: map['goalId'],
         contributionPercentage:
             (map['contributionPercentage'] ?? 100.0).toDouble(),
+        isRecurring: map['isRecurring'] ?? false,
+        recurrencePattern: map['recurrencePattern'] != null
+            ? RecurrencePattern.values.firstWhere(
+                (e) => e.name == map['recurrencePattern'],
+                orElse: () => RecurrencePattern.monthly,
+              )
+            : null,
+        recurrenceEndDate: map['recurrenceEndDate'] != null
+            ? (map['recurrenceEndDate'] as Timestamp).toDate()
+            : null,
+        parentTransactionId: map['parentTransactionId'],
+        isPaused: map['isPaused'] ?? false,
       );
       return transaction;
     } catch (e) {
@@ -78,6 +111,13 @@ class Transaction {
       'includedInTotals': includedInTotals,
       'goalId': goalId,
       'contributionPercentage': contributionPercentage,
+      'isRecurring': isRecurring,
+      'recurrencePattern': recurrencePattern?.name,
+      'recurrenceEndDate': recurrenceEndDate != null
+          ? Timestamp.fromDate(recurrenceEndDate!)
+          : null,
+      'parentTransactionId': parentTransactionId,
+      'isPaused': isPaused,
     };
   }
 
@@ -94,6 +134,11 @@ class Transaction {
     bool? includedInTotals,
     String? goalId,
     double? contributionPercentage,
+    bool? isRecurring,
+    RecurrencePattern? recurrencePattern,
+    DateTime? recurrenceEndDate,
+    String? parentTransactionId,
+    bool? isPaused,
   }) {
     return Transaction(
       id: id ?? this.id,
@@ -109,6 +154,11 @@ class Transaction {
       goalId: goalId ?? this.goalId,
       contributionPercentage:
           contributionPercentage ?? this.contributionPercentage,
+      isRecurring: isRecurring ?? this.isRecurring,
+      recurrencePattern: recurrencePattern ?? this.recurrencePattern,
+      recurrenceEndDate: recurrenceEndDate ?? this.recurrenceEndDate,
+      parentTransactionId: parentTransactionId ?? this.parentTransactionId,
+      isPaused: isPaused ?? this.isPaused,
     );
   }
 
@@ -116,7 +166,40 @@ class Transaction {
   String toDebugString() {
     return 'Transaction(id: $id, title: $title, amount: $amount, date: $date, '
         'type: $type, category: $category, userId: $userId, includedInTotals: $includedInTotals, '
-        'goalId: $goalId, contributionPercentage: $contributionPercentage)';
+        'goalId: $goalId, contributionPercentage: $contributionPercentage, '
+        'isRecurring: $isRecurring, recurrencePattern: $recurrencePattern)';
+  }
+
+  /// Calculate the next occurrence date from a given date.
+  DateTime? nextOccurrenceAfter(DateTime from) {
+    if (!isRecurring || recurrencePattern == null) return null;
+    if (recurrenceEndDate != null && from.isAfter(recurrenceEndDate!)) {
+      return null;
+    }
+
+    DateTime next;
+    switch (recurrencePattern!) {
+      case RecurrencePattern.daily:
+        next = from.add(const Duration(days: 1));
+        break;
+      case RecurrencePattern.weekly:
+        next = from.add(const Duration(days: 7));
+        break;
+      case RecurrencePattern.biweekly:
+        next = from.add(const Duration(days: 14));
+        break;
+      case RecurrencePattern.monthly:
+        next = DateTime(from.year, from.month + 1, from.day);
+        break;
+      case RecurrencePattern.yearly:
+        next = DateTime(from.year + 1, from.month, from.day);
+        break;
+    }
+
+    if (recurrenceEndDate != null && next.isAfter(recurrenceEndDate!)) {
+      return null;
+    }
+    return next;
   }
 
   // Check if transaction contributes to a goal

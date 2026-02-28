@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/models/transaction.dart';
@@ -10,6 +11,23 @@ import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
 import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
+
+extension RecurrencePatternLabel on RecurrencePattern {
+  String get label {
+    switch (this) {
+      case RecurrencePattern.daily:
+        return 'Daily';
+      case RecurrencePattern.weekly:
+        return 'Weekly';
+      case RecurrencePattern.biweekly:
+        return 'Every 2 weeks';
+      case RecurrencePattern.monthly:
+        return 'Monthly';
+      case RecurrencePattern.yearly:
+        return 'Yearly';
+    }
+  }
+}
 
 class TransactionForm extends StatefulWidget {
   final Transaction? transaction;
@@ -28,6 +46,7 @@ class TransactionForm extends StatefulWidget {
 }
 
 class _TransactionFormState extends State<TransactionForm> {
+  final logger = Logger('TransactionForm');
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _titleController;
   late TextEditingController _amountController;
@@ -41,6 +60,9 @@ class _TransactionFormState extends State<TransactionForm> {
   bool _saveToSavingsGoal = false;
   SavingGoal? _selectedSavingGoal;
   double _contributionPercentage = 100.0;
+  bool _isRecurring = false;
+  RecurrencePattern _recurrencePattern = RecurrencePattern.monthly;
+  DateTime? _recurrenceEndDate;
 
   @override
   void initState() {
@@ -71,17 +93,23 @@ class _TransactionFormState extends State<TransactionForm> {
           widget.transaction!.contributionPercentage ?? 100.0;
       _percentageController.text = _contributionPercentage.toStringAsFixed(0);
 
-      debugPrint('Init form for editing transaction ${widget.transaction!.id}');
-      debugPrint('Transaction type: ${widget.transaction!.type}');
-      debugPrint('Transaction goal ID: ${widget.transaction!.goalId}');
-      debugPrint('Contribution percentage: $_contributionPercentage');
+      _isRecurring = widget.transaction!.isRecurring;
+      if (widget.transaction!.recurrencePattern != null) {
+        _recurrencePattern = widget.transaction!.recurrencePattern!;
+      }
+      _recurrenceEndDate = widget.transaction!.recurrenceEndDate;
+
+      logger.fine('Init form for editing transaction ${widget.transaction!.id}');
+      logger.fine('Transaction type: ${widget.transaction!.type}');
+      logger.fine('Transaction goal ID: ${widget.transaction!.goalId}');
+      logger.fine('Contribution percentage: $_contributionPercentage');
 
       // Initialize saving goal fields if this is an income transaction with a goalId
       if (widget.transaction!.type == TransactionType.income) {
         if (widget.transaction!.goalId != null &&
             widget.transaction!.goalId!.isNotEmpty) {
           _saveToSavingsGoal = true;
-          debugPrint(
+          logger.fine(
               'Setting _saveToSavingsGoal to true for goal ID: ${widget.transaction!.goalId}');
 
           // We'll load the actual SavingGoal object when the widget is built
@@ -90,16 +118,16 @@ class _TransactionFormState extends State<TransactionForm> {
               final financeProvider =
                   Provider.of<FinanceProvider>(context, listen: false);
               final goalId = widget.transaction!.goalId!;
-              debugPrint('Fetching saving goal with ID: $goalId');
+              logger.fine('Fetching saving goal with ID: $goalId');
               final goal = await financeProvider.getSavingGoalById(goalId);
 
               if (mounted && goal != null) {
-                debugPrint('Found goal: ${goal.title} with ID: ${goal.id}');
+                logger.fine('Found goal: ${goal.title} with ID: ${goal.id}');
                 setState(() {
                   _selectedSavingGoal = goal;
                 });
               } else {
-                debugPrint('Goal not found with ID: $goalId');
+                logger.fine('Goal not found with ID: $goalId');
               }
             }
           });
@@ -107,13 +135,13 @@ class _TransactionFormState extends State<TransactionForm> {
           // Ensure saving goal is disabled if transaction is income but has no goal
           _saveToSavingsGoal = false;
           _selectedSavingGoal = null;
-          debugPrint(
+          logger.fine(
               'Income transaction has no goal, _saveToSavingsGoal set to false');
         }
       }
     } else if (widget.initialType != null) {
       _selectedType = widget.initialType!;
-      debugPrint('New transaction with initial type: $_selectedType');
+      logger.fine('New transaction with initial type: $_selectedType');
     }
 
     // Force a re-fetch of categories to ensure we have the latest data
@@ -177,21 +205,21 @@ class _TransactionFormState extends State<TransactionForm> {
         final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
 
         // Enhanced logging for debugging
-        debugPrint('===== TRANSACTION SAVE DETAILS =====');
-        debugPrint('Title: ${_titleController.text.trim()}');
-        debugPrint('Amount: $amount');
-        debugPrint('Type: $transactionType');
-        debugPrint('Category: $selectedCategory');
-        debugPrint('Save to goal: $_saveToSavingsGoal');
+        logger.fine('===== TRANSACTION SAVE DETAILS =====');
+        logger.fine('Title: ${_titleController.text.trim()}');
+        logger.fine('Amount: $amount');
+        logger.fine('Type: $transactionType');
+        logger.fine('Category: $selectedCategory');
+        logger.fine('Save to goal: $_saveToSavingsGoal');
 
         if (selectedGoal != null) {
-          debugPrint('Selected goal for contribution:');
-          debugPrint('- Title: ${selectedGoal.title}');
-          debugPrint('- ID: ${selectedGoal.id}');
-          debugPrint('- Current Amount: ${selectedGoal.currentAmount}');
-          debugPrint('- Target Amount: ${selectedGoal.targetAmount}');
+          logger.fine('Selected goal for contribution:');
+          logger.fine('- Title: ${selectedGoal.title}');
+          logger.fine('- ID: ${selectedGoal.id}');
+          logger.fine('- Current Amount: ${selectedGoal.currentAmount}');
+          logger.fine('- Target Amount: ${selectedGoal.targetAmount}');
         } else {
-          debugPrint('No goal selected for this transaction');
+          logger.fine('No goal selected for this transaction');
         }
 
         final String? goalIdToUse =
@@ -199,7 +227,7 @@ class _TransactionFormState extends State<TransactionForm> {
                 ? selectedGoal.id
                 : null;
 
-        debugPrint('FINAL GOAL ID TO USE: $goalIdToUse');
+        logger.fine('FINAL GOAL ID TO USE: $goalIdToUse');
 
         final transaction = Transaction(
           id: widget.transaction?.id,
@@ -214,10 +242,13 @@ class _TransactionFormState extends State<TransactionForm> {
           note: _noteController.text.trim(),
           contributionPercentage:
               _saveToSavingsGoal ? _contributionPercentage : null,
+          isRecurring: _isRecurring,
+          recurrencePattern: _isRecurring ? _recurrencePattern : null,
+          recurrenceEndDate: _isRecurring ? _recurrenceEndDate : null,
         );
 
-        debugPrint('Transaction object goal ID: ${transaction.goalId}');
-        debugPrint('===============================');
+        logger.fine('Transaction object goal ID: ${transaction.goalId}');
+        logger.fine('===============================');
 
         bool success = false;
         final financeProvider =
@@ -225,26 +256,26 @@ class _TransactionFormState extends State<TransactionForm> {
 
         // Handle case where transaction is being edited
         if (widget.transaction != null) {
-          debugPrint(
+          logger.fine(
               'Updating existing transaction with ID: ${widget.transaction!.id}');
-          debugPrint('Previous goal ID: ${widget.transaction!.goalId}');
-          debugPrint('New goal ID: ${transaction.goalId}');
+          logger.fine('Previous goal ID: ${widget.transaction!.goalId}');
+          logger.fine('New goal ID: ${transaction.goalId}');
           final result = await financeProvider.updateTransaction(transaction);
           success = result['success'] ?? false;
         }
         // Handle case for new transaction
         else {
-          debugPrint('Creating new transaction');
+          logger.fine('Creating new transaction');
           if (transactionType == TransactionType.income &&
               selectedGoal != null) {
             // Use the specialized method for transactions with goals
-            debugPrint(
+            logger.fine(
                 'Using addTransactionWithGoal method with goal ID: ${selectedGoal.id}');
             success = await financeProvider.addTransactionWithGoal(
                 transaction, selectedGoal);
           } else {
             // Use regular method for transactions without goals
-            debugPrint('Using regular addTransaction method (no goal)');
+            logger.fine('Using regular addTransaction method (no goal)');
             success = await financeProvider.addTransaction(transaction);
           }
         }
@@ -264,7 +295,7 @@ class _TransactionFormState extends State<TransactionForm> {
           }
         }
       } catch (e) {
-        debugPrint('Error saving transaction: $e');
+        logger.fine('Error saving transaction: $e');
         _showError(e.toString());
         if (mounted && widget.onComplete != null) {
           widget.onComplete!(false);
@@ -530,6 +561,101 @@ class _TransactionFormState extends State<TransactionForm> {
                   maxLines: 2,
                 ),
 
+                // Recurring transaction toggle
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Recurring Transaction'),
+                  subtitle: Text(
+                    _isRecurring
+                        ? 'Repeats ${_recurrencePattern.label.toLowerCase()}'
+                        : 'One-time transaction',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  value: _isRecurring,
+                  secondary: Icon(
+                    Icons.repeat,
+                    color:
+                        _isRecurring ? theme.colorScheme.primary : Colors.grey,
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _isRecurring = value;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                ),
+
+                if (_isRecurring) ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<RecurrencePattern>(
+                    value: _recurrencePattern,
+                    decoration: const InputDecoration(
+                      labelText: 'Frequency',
+                      prefixIcon: Icon(Icons.schedule),
+                    ),
+                    items: RecurrencePattern.values
+                        .map((p) => DropdownMenuItem(
+                              value: p,
+                              child: Text(p.label),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _recurrencePattern = value;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _recurrenceEndDate ??
+                            DateTime.now()
+                                .add(const Duration(days: 365)),
+                        firstDate: DateTime.now(),
+                        lastDate:
+                            DateTime.now().add(const Duration(days: 3650)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _recurrenceEndDate = picked;
+                        });
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'End Date (Optional)',
+                        prefixIcon: const Icon(Icons.event_busy),
+                        suffixIcon: _recurrenceEndDate != null
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  setState(() {
+                                    _recurrenceEndDate = null;
+                                  });
+                                },
+                              )
+                            : null,
+                      ),
+                      child: Text(
+                        _recurrenceEndDate != null
+                            ? DateFormat('MMM dd, yyyy')
+                                .format(_recurrenceEndDate!)
+                            : 'No end date (repeats forever)',
+                        style: TextStyle(
+                          color: _recurrenceEndDate != null
+                              ? null
+                              : Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+
                 // Only show saving goal options for income transactions
                 if (_selectedType == TransactionType.income) ...[
                   const SizedBox(height: 16),
@@ -604,18 +730,18 @@ class _TransactionFormState extends State<TransactionForm> {
                       onChanged: (value) {
                         setState(() {
                           _selectedSavingGoal = value;
-                          debugPrint(
+                          logger.fine(
                               'GOAL SELECTED: ${value?.title} (ID: ${value?.id})');
                           // Log all details of the selected goal
                           if (value != null) {
-                            debugPrint('SELECTED GOAL DETAILS:');
-                            debugPrint('- Title: ${value.title}');
-                            debugPrint('- ID: ${value.id}');
-                            debugPrint(
+                            logger.fine('SELECTED GOAL DETAILS:');
+                            logger.fine('- Title: ${value.title}');
+                            logger.fine('- ID: ${value.id}');
+                            logger.fine(
                                 '- Current Amount: ${value.currentAmount}');
-                            debugPrint(
+                            logger.fine(
                                 '- Target Amount: ${value.targetAmount}');
-                            debugPrint('- Is Completed: ${value.isCompleted}');
+                            logger.fine('- Is Completed: ${value.isCompleted}');
                             _saveToSavingsGoal = true;
                           }
                         });

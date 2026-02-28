@@ -4,29 +4,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+import 'package:wealth_wise/constants/subscription_constants.dart';
 import 'package:wealth_wise/services/database_service.dart';
 import 'package:logging/logging.dart';
-import 'package:wealth_wise/controllers/feature_access_controller.dart';
 
 class SubscriptionProvider extends ChangeNotifier {
-  // Logger
   final Logger _logger = Logger('SubscriptionProvider');
-
-  // Database service for storing subscription status
   final DatabaseService _databaseService = DatabaseService();
-
-  // In-App Purchase instance
   final InAppPurchase _inAppPurchase = InAppPurchase.instance;
 
-  // Subscription product IDs
-  static const String _monthlySubscriptionId =
-      'wealthwise_monthly'; // Real product ID
-  static const String _annualSubscriptionId =
-      'wealthwise_annual'; // Real product ID
-
-  // Track available products
+  // Available products from the store (or fallback)
   List<ProductDetails> _products = [];
   List<ProductDetails> get products => _products;
 
@@ -60,28 +52,21 @@ class SubscriptionProvider extends ChangeNotifier {
   // Purchase stream subscription
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
 
-  // Store info about app loads (to show ads periodically, not on every screen)
+  // App load counter for ad frequency
   int _appLoadCount = 0;
   int get appLoadCount => _appLoadCount;
 
-  // Test ad units for development
-  static const String _testBannerAdUnitId =
-      'ca-app-pub-3940256099942544/6300978111';
-  static const String _testInterstitialAdUnitId =
-      'ca-app-pub-3940256099942544/1033173712';
-
-  // Flag to track if initialization has been called
+  // Initialization guard
   bool _hasInitialized = false;
 
   // Timeout for loading products
   static const Duration _initTimeout = Duration(seconds: 10);
 
-  // Initialize subscription provider
+  /// Initialize the subscription provider.
+  /// Loads cached status, syncs with Firestore, sets up IAP stream,
+  /// loads products, and creates ads if not subscribed.
   Future<void> initialize() async {
-    // Prevent multiple initializations
-    if (_hasInitialized) {
-      return;
-    }
+    if (_hasInitialized) return;
     _hasInitialized = true;
 
     _isLoading = true;
@@ -89,53 +74,61 @@ class SubscriptionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Initialize mobile ads SDK (skip if already initialized in main.dart)
+      // Initialize mobile ads SDK
       try {
         await MobileAds.instance.initialize();
       } catch (adError) {
-        _logger.warning(
-            'MobileAds initialization error (may be already initialized): $adError');
-        // Continue execution even if ad initialization fails
+        _logger.warning('MobileAds init error (may be already initialized): $adError');
       }
 
-      // Load subscription status from local storage first (for quick access)
+      // Migrate legacy SharedPrefs keys from old BillingService
+      await _migrateLegacyPrefs();
+
+      // Load cached subscription status (instant, for quick UI)
       await _loadSubscriptionStatusFromPrefs();
 
-      // Then try to get the latest status from the server
+      // Sync with Firestore for latest status
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await _fetchSubscriptionFromDatabase(user.uid);
       }
 
-      // Increment app load count for ad frequency management
+      // Check if subscription has expired
+      if (_subscriptionEndDate != null &&
+          _subscriptionEndDate!.isBefore(DateTime.now())) {
+        _isSubscribed = false;
+        _subscriptionEndDate = null;
+        await _saveSubscriptionStatusToPrefs();
+        if (user != null) {
+          await _saveSubscriptionToDatabase(user.uid);
+        }
+      }
+
+      // Increment app load count for ad frequency
       await _incrementAppLoadCount();
 
-      // Setup timeout to prevent infinite loading
+      // Safety timeout to prevent infinite loading
       Timer(_initTimeout, () {
         if (_isLoading) {
           _logger.warning('Subscription initialization timed out');
           _isLoading = false;
-
-          // Create fallback products for UI if none loaded
-          if (_products.isEmpty) {
-            _createFallbackProducts();
-          }
-
+          if (_products.isEmpty) _createFallbackProducts();
           notifyListeners();
         }
       });
 
-      // Listen for subscription purchases
+      // Set up purchase stream listener
       final purchaseStream = _inAppPurchase.purchaseStream;
+      _purchaseSubscription?.cancel();
       _purchaseSubscription = purchaseStream.listen(
         _handlePurchaseUpdates,
-        onDone: _purchaseSubscription?.cancel,
+        onDone: () => _purchaseSubscription?.cancel(),
         onError: (error) {
           _logger.warning('Purchase stream error: $error');
         },
       );
 
-      // Load available IAP products
+      // Load products from store
       await _loadProducts();
 
       // Initialize ads if user is not subscribed
@@ -145,7 +138,6 @@ class SubscriptionProvider extends ChangeNotifier {
           _createInterstitialAd();
         } catch (adError) {
           _logger.warning('Error creating ads: $adError');
-          // Continue execution even if ad creation fails
         }
       }
 
@@ -155,72 +147,70 @@ class SubscriptionProvider extends ChangeNotifier {
       _logger.warning('Error initializing subscription provider: $e');
       _errorMessage = 'Failed to initialize subscription services';
       _isLoading = false;
-
-      // Create fallback products for UI if none loaded
-      if (_products.isEmpty) {
-        _createFallbackProducts();
-      }
-
+      if (_products.isEmpty) _createFallbackProducts();
       notifyListeners();
     }
   }
 
-  // Create fallback products for UI when real products fail to load
-  void _createFallbackProducts() {
-    _logger.info('Creating fallback products');
-    // Use our mock products instead of creating inline
-    _products = [
-      _createMockProduct(
-        'wealthwise_monthly',
-        'Monthly Premium',
-        'Unlimited access for one month',
-        'USD',
-        3.99,
-      ),
-      _createMockProduct(
-        'wealthwise_annual',
-        'Annual Premium',
-        'Unlimited access for one year (58% discount)',
-        'USD',
-        19.99,
-      ),
-    ];
+  // ─── SharedPrefs Migration ───────────────────────────────────────────
+
+  /// Migrate old BillingService snake_case SharedPrefs keys to new format.
+  /// Runs once; old keys are deleted after migration.
+  Future<void> _migrateLegacyPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final oldIsSubscribed =
+          prefs.getBool(SubscriptionConstants.legacyPrefIsSubscribed);
+      if (oldIsSubscribed == null) return; // No legacy data
+
+      // Only migrate if new keys don't already exist
+      if (prefs.getBool(SubscriptionConstants.prefIsSubscribed) == null) {
+        await prefs.setBool(
+            SubscriptionConstants.prefIsSubscribed, oldIsSubscribed);
+
+        final oldEndDate =
+            prefs.getInt(SubscriptionConstants.legacyPrefEndDate);
+        if (oldEndDate != null) {
+          await prefs.setInt(
+              SubscriptionConstants.prefEndDateMillis, oldEndDate);
+        }
+
+        final oldProductId =
+            prefs.getString(SubscriptionConstants.legacyPrefProductId);
+        if (oldProductId != null) {
+          await prefs.setString(
+              SubscriptionConstants.prefProductId, oldProductId);
+        }
+      }
+
+      // Delete old keys
+      await prefs.remove(SubscriptionConstants.legacyPrefIsSubscribed);
+      await prefs.remove(SubscriptionConstants.legacyPrefEndDate);
+      await prefs.remove(SubscriptionConstants.legacyPrefProductId);
+
+      _logger.info('Legacy SharedPrefs migration complete');
+    } catch (e) {
+      _logger.warning('Error migrating legacy prefs: $e');
+    }
   }
 
-  // Helper method to create mock product for display purposes only
-  ProductDetails _createMockProduct(
-    String id,
-    String title,
-    String description,
-    String currencyCode,
-    double price,
-  ) {
-    return ProductDetails(
-      id: id,
-      title: title,
-      description: description,
-      price: '$currencyCode $price',
-      rawPrice: price,
-      currencyCode: currencyCode,
-    );
-  }
+  // ─── Product Loading ─────────────────────────────────────────────────
 
-  // Load in-app purchase products
+  /// Load in-app purchase products from the store.
   Future<void> _loadProducts() async {
     try {
       final available = await _inAppPurchase.isAvailable();
       if (!available) {
         _logger.warning('In-app purchase is not available');
+        _createFallbackProducts();
         return;
       }
 
-      // Set up the product query with our product IDs
       final productIds = <String>{
-        _monthlySubscriptionId,
-        _annualSubscriptionId,
+        SubscriptionConstants.monthlyProductId,
+        SubscriptionConstants.annualProductId,
       };
 
-      // Query the store for product details
       final ProductDetailsResponse response =
           await _inAppPurchase.queryProductDetails(productIds);
 
@@ -230,7 +220,10 @@ class SubscriptionProvider extends ChangeNotifier {
         return;
       }
 
-      // Store the product details
+      if (response.notFoundIDs.isNotEmpty) {
+        _logger.warning('Products not found: ${response.notFoundIDs}');
+      }
+
       if (response.productDetails.isNotEmpty) {
         _products = response.productDetails;
         _logger.info('Products loaded: ${_products.length}');
@@ -246,82 +239,71 @@ class SubscriptionProvider extends ChangeNotifier {
     }
   }
 
-  // Handle purchase updates
-  void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
-    for (final purchaseDetails in purchaseDetailsList) {
-      if (purchaseDetails.status == PurchaseStatus.pending) {
-        // Show a dialog or indicator for pending purchase
-        _logger.info('Purchase pending for ${purchaseDetails.productID}');
-      } else if (purchaseDetails.status == PurchaseStatus.error) {
-        // Handle error
-        _logger.warning('Purchase error: ${purchaseDetails.error?.message}');
-      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-          purchaseDetails.status == PurchaseStatus.restored) {
-        // Handle successful purchase or restoration
-        _handleSuccessfulPurchase(purchaseDetails);
-      } else if (purchaseDetails.status == PurchaseStatus.canceled) {
-        _logger.info('Purchase canceled');
-      }
-
-      // Complete the purchase
-      if (purchaseDetails.pendingCompletePurchase) {
-        _inAppPurchase.completePurchase(purchaseDetails);
-      }
-    }
+  /// Create fallback products for UI when store products fail to load.
+  /// These are display-only and cannot be purchased.
+  void _createFallbackProducts() {
+    _logger.info('Creating fallback products');
+    _products = [
+      ProductDetails(
+        id: SubscriptionConstants.monthlyProductId,
+        title: 'Monthly Premium',
+        description: 'Unlimited access for one month',
+        price: SubscriptionConstants.monthlyFallbackPriceDisplay,
+        rawPrice: SubscriptionConstants.monthlyFallbackPrice,
+        currencyCode: SubscriptionConstants.fallbackCurrency,
+      ),
+      ProductDetails(
+        id: SubscriptionConstants.annualProductId,
+        title: 'Annual Premium',
+        description:
+            'Unlimited access for one year (${SubscriptionConstants.annualDiscountLabel})',
+        price: SubscriptionConstants.annualFallbackPriceDisplay,
+        rawPrice: SubscriptionConstants.annualFallbackPrice,
+        currencyCode: SubscriptionConstants.fallbackCurrency,
+      ),
+    ];
   }
 
-  // Handle successful purchase
-  Future<void> _handleSuccessfulPurchase(PurchaseDetails purchase) async {
-    // Verify purchase on your server if needed
+  // ─── Purchase Flow ───────────────────────────────────────────────────
 
-    // Determine subscription end date based on product ID
-    DateTime endDate = DateTime.now();
-    if (purchase.productID == _monthlySubscriptionId) {
-      endDate = DateTime.now().add(const Duration(days: 30));
-    } else if (purchase.productID == _annualSubscriptionId) {
-      endDate = DateTime.now().add(const Duration(days: 365));
-    }
-
-    // Update subscription status
-    _isSubscribed = true;
-    _subscriptionEndDate = endDate;
-
-    // Save to local preferences
-    await _saveSubscriptionStatusToPrefs();
-
-    // Save to database if user is logged in
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await _saveSubscriptionToDatabase(user.uid);
-    }
-
-    // Dispose ads if they exist
-    _disposeBannerAd();
-
-    notifyListeners();
-  }
-
-  // Buy subscription
+  /// Start a subscription purchase via the platform billing dialog.
   Future<void> buySubscription(ProductDetails product) async {
     try {
       _logger.info('Attempting to purchase ${product.id}');
-
-      // Show a loading state
       _isLoading = true;
       notifyListeners();
 
-      final purchaseParam = PurchaseParam(productDetails: product);
-
-      // For subscriptions
-      bool purchaseStarted = false;
-
-      if (Platform.isAndroid) {
-        purchaseStarted =
-            await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
-      } else if (Platform.isIOS) {
-        purchaseStarted =
-            await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
+      // Verify the store is available
+      final available = await _inAppPurchase.isAvailable();
+      if (!available) {
+        _logger.warning('Store not available for purchase');
+        _errorMessage = 'Store is not available. Please try again later.';
+        _isLoading = false;
+        notifyListeners();
+        return;
       }
+
+      // Find the real product in our loaded list
+      ProductDetails validProduct;
+      try {
+        validProduct = _products.firstWhere((p) => p.id == product.id);
+      } catch (_) {
+        // Reload and retry
+        await _loadProducts();
+        try {
+          validProduct = _products.firstWhere((p) => p.id == product.id);
+        } catch (_) {
+          _logger.severe('Product not available: ${product.id}');
+          _errorMessage = 'Product not available. Please try again later.';
+          _isLoading = false;
+          notifyListeners();
+          return;
+        }
+      }
+
+      final purchaseParam = PurchaseParam(productDetails: validProduct);
+      final purchaseStarted =
+          await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
 
       if (purchaseStarted) {
         _logger.info('Purchase flow started for ${product.id}');
@@ -331,11 +313,7 @@ class SubscriptionProvider extends ChangeNotifier {
         notifyListeners();
       }
 
-      // Note: actual purchase result will be delivered via the _purchaseSubscription listener
-      // in _handlePurchaseUpdates, which will update the subscription status
-
-      // In case the purchase listener doesn't trigger after a reasonable time,
-      // exit loading state after 30 seconds
+      // Safety timeout: exit loading if purchase listener doesn't fire
       Future.delayed(const Duration(seconds: 30), () {
         if (_isLoading) {
           _logger.warning('Purchase timeout, exiting loading state');
@@ -350,35 +328,157 @@ class SubscriptionProvider extends ChangeNotifier {
     }
   }
 
-  // Restore purchases
-  Future<void> restorePurchases() async {
-    try {
-      await _inAppPurchase.restorePurchases();
-      _logger.info('Restore purchases initiated');
-    } catch (e) {
-      _logger.warning('Error restoring purchases: $e');
+  /// Handle purchase updates from the platform billing stream.
+  void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
+    _logger.info('Received ${purchaseDetailsList.length} purchase updates');
+
+    for (final purchase in purchaseDetailsList) {
+      _logger.info(
+          'Purchase update: ${purchase.productID} status=${purchase.status}');
+
+      switch (purchase.status) {
+        case PurchaseStatus.pending:
+          _logger.info('Purchase pending for ${purchase.productID}');
+          break;
+        case PurchaseStatus.error:
+          _logger.warning('Purchase error: ${purchase.error?.message}');
+          _isLoading = false;
+          notifyListeners();
+          break;
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          _handleSuccessfulPurchase(purchase);
+          break;
+        case PurchaseStatus.canceled:
+          _logger.info('Purchase canceled');
+          _isLoading = false;
+          notifyListeners();
+          break;
+      }
+
+      // Critical: complete the purchase to finalize the transaction
+      if (purchase.pendingCompletePurchase) {
+        _logger.info('Completing purchase for ${purchase.productID}');
+        _inAppPurchase.completePurchase(purchase);
+      }
     }
   }
 
-  // Load subscription status from local prefs for quick access on app start
+  /// Handle a successful purchase or restored purchase.
+  /// Verifies the purchase, sets subscription status, saves to prefs + Firestore.
+  Future<void> _handleSuccessfulPurchase(PurchaseDetails purchase) async {
+    _logger.info('Handling successful purchase: ${purchase.productID}');
+
+    try {
+      // Verify the purchase is valid
+      final isValid = await _verifyPurchase(purchase);
+      if (!isValid) {
+        _logger.warning('Purchase verification failed: ${purchase.productID}');
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      // Determine subscription end date
+      DateTime endDate;
+      if (purchase.productID == SubscriptionConstants.monthlyProductId) {
+        endDate = DateTime.now().add(const Duration(days: 30));
+      } else if (purchase.productID == SubscriptionConstants.annualProductId) {
+        endDate = DateTime.now().add(const Duration(days: 365));
+      } else {
+        endDate = DateTime.now().add(const Duration(days: 30));
+      }
+
+      _isSubscribed = true;
+      _subscriptionEndDate = endDate;
+
+      // Save locally and remotely
+      await _saveSubscriptionStatusToPrefs(purchase.productID);
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _saveSubscriptionToDatabase(user.uid, purchase.productID);
+      }
+
+      // Dispose ads since user is now subscribed
+      _disposeBannerAd();
+
+      _isLoading = false;
+      notifyListeners();
+
+      _logger.info('Successfully processed purchase: ${purchase.productID}');
+    } catch (e) {
+      _logger.severe('Error handling successful purchase: $e');
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Verify that a purchase is valid via platform-specific checks.
+  Future<bool> _verifyPurchase(PurchaseDetails purchase) async {
+    if (Platform.isAndroid) {
+      final googlePurchase = purchase as GooglePlayPurchaseDetails;
+      if (googlePurchase.billingClientPurchase.purchaseToken.isEmpty) {
+        return false;
+      }
+      // TODO(account-setup): Add server-side verification for production
+      return true;
+    } else if (Platform.isIOS) {
+      final appStorePurchase = purchase as AppStorePurchaseDetails;
+      if (appStorePurchase.verificationData.serverVerificationData.isEmpty) {
+        return false;
+      }
+      // TODO(account-setup): Add server-side verification for production
+      return true;
+    }
+    return false;
+  }
+
+  /// Restore previous purchases from the platform store.
+  Future<void> restorePurchases() async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+      await _inAppPurchase.restorePurchases();
+      _logger.info('Restore purchases initiated');
+      // Results arrive via _handlePurchaseUpdates stream
+    } catch (e) {
+      _logger.warning('Error restoring purchases: $e');
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Open the platform's subscription management page.
+  /// This is how users cancel — we don't cancel locally.
+  Future<void> openSubscriptionManagement() async {
+    try {
+      final url = SubscriptionConstants.subscriptionManagementUrl;
+      await launchUrlString(url, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      _logger.warning('Error opening subscription management: $e');
+    }
+  }
+
+  // ─── Local Storage ───────────────────────────────────────────────────
+
   Future<void> _loadSubscriptionStatusFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Get subscription status
-      _isSubscribed = prefs.getBool('isSubscribed') ?? false;
+      _isSubscribed =
+          prefs.getBool(SubscriptionConstants.prefIsSubscribed) ?? false;
 
-      // Get subscription end date
-      final endDateMillis = prefs.getInt('subscriptionEndDateMillis');
+      final endDateMillis =
+          prefs.getInt(SubscriptionConstants.prefEndDateMillis);
       if (endDateMillis != null) {
         _subscriptionEndDate =
             DateTime.fromMillisecondsSinceEpoch(endDateMillis);
 
-        // Check if subscription has expired
         if (_subscriptionEndDate!.isBefore(DateTime.now())) {
           _isSubscribed = false;
           _subscriptionEndDate = null;
-          await _saveSubscriptionStatusToPrefs(); // Update prefs with expired status
+          await _saveSubscriptionStatusToPrefs();
         }
       }
     } catch (e) {
@@ -386,94 +486,91 @@ class SubscriptionProvider extends ChangeNotifier {
     }
   }
 
-  // Save subscription status to prefs
-  Future<void> _saveSubscriptionStatusToPrefs() async {
+  Future<void> _saveSubscriptionStatusToPrefs([String? productId]) async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Save subscription status
-      await prefs.setBool('isSubscribed', _isSubscribed);
+      await prefs.setBool(
+          SubscriptionConstants.prefIsSubscribed, _isSubscribed);
 
-      // Save subscription end date
       if (_subscriptionEndDate != null) {
-        await prefs.setInt('subscriptionEndDateMillis',
+        await prefs.setInt(SubscriptionConstants.prefEndDateMillis,
             _subscriptionEndDate!.millisecondsSinceEpoch);
+        if (productId != null) {
+          await prefs.setString(
+              SubscriptionConstants.prefProductId, productId);
+        }
       } else {
-        await prefs.remove('subscriptionEndDateMillis');
+        await prefs.remove(SubscriptionConstants.prefEndDateMillis);
+        await prefs.remove(SubscriptionConstants.prefProductId);
       }
     } catch (e) {
       _logger.warning('Error saving subscription to prefs: $e');
     }
   }
 
-  // Fetch subscription status from database
+  // ─── Firestore Storage ───────────────────────────────────────────────
+
   Future<void> _fetchSubscriptionFromDatabase(String userId) async {
     try {
-      final subscriptionData =
-          await _databaseService.getUserFieldData(userId, 'subscriptions');
+      final userData = await _databaseService.getUserData(userId);
+      if (userData == null) return;
 
-      if (subscriptionData != null &&
-          subscriptionData is Map<String, dynamic>) {
-        // Update subscription status from database
-        final endDateMillis = subscriptionData['endDateMillis'] as int?;
-
-        if (endDateMillis != null) {
-          final endDate = DateTime.fromMillisecondsSinceEpoch(endDateMillis);
-
-          // Check if the subscription is still valid
-          if (endDate.isAfter(DateTime.now())) {
-            _isSubscribed = true;
-            _subscriptionEndDate = endDate;
-          } else {
-            _isSubscribed = false;
-            _subscriptionEndDate = null;
-          }
-
-          // Update local prefs with the latest data
-          await _saveSubscriptionStatusToPrefs();
-        }
+      if (userData.isSubscribed &&
+          userData.subscriptionEndDate != null &&
+          userData.subscriptionEndDate!.isAfter(DateTime.now())) {
+        _isSubscribed = true;
+        _subscriptionEndDate = userData.subscriptionEndDate;
+        await _saveSubscriptionStatusToPrefs();
+      } else if (userData.isSubscribed &&
+          userData.subscriptionEndDate != null &&
+          userData.subscriptionEndDate!.isBefore(DateTime.now())) {
+        // Subscription expired — clear it
+        _isSubscribed = false;
+        _subscriptionEndDate = null;
+        await _saveSubscriptionStatusToPrefs();
+        await _saveSubscriptionToDatabase(userId);
       }
     } catch (e) {
       _logger.warning('Error fetching subscription from database: $e');
     }
   }
 
-  // Save subscription to database
-  Future<void> _saveSubscriptionToDatabase(String userId) async {
+  Future<void> _saveSubscriptionToDatabase(String userId,
+      [String? productId]) async {
     try {
-      if (!_isSubscribed || _subscriptionEndDate == null) {
-        await _databaseService.removeField(userId, 'subscriptions');
-        return;
-      }
-
-      final subscriptionData = {
+      final data = <String, dynamic>{
         'isSubscribed': _isSubscribed,
-        'endDateMillis': _subscriptionEndDate!.millisecondsSinceEpoch,
-        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        'subscriptionType': _isSubscribed && productId != null
+            ? (productId.contains('annual') ? 'annual' : 'monthly')
+            : null,
+        'subscriptionEndDate': _subscriptionEndDate,
       };
 
-      await _databaseService.updateUserField(
-          userId, 'subscriptions', subscriptionData);
+      for (final entry in data.entries) {
+        await _databaseService.updateUserField(userId, entry.key, entry.value);
+      }
     } catch (e) {
       _logger.warning('Error saving subscription to database: $e');
     }
   }
 
-  // Increment app load count for managing ad frequency
+  // ─── Ad Management ───────────────────────────────────────────────────
+
   Future<void> _incrementAppLoadCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _appLoadCount = (prefs.getInt('appLoadCount') ?? 0) + 1;
-      await prefs.setInt('appLoadCount', _appLoadCount);
+      _appLoadCount =
+          (prefs.getInt(SubscriptionConstants.prefAppLoadCount) ?? 0) + 1;
+      await prefs.setInt(SubscriptionConstants.prefAppLoadCount, _appLoadCount);
     } catch (e) {
       _logger.warning('Error incrementing app load count: $e');
     }
   }
 
-  // Create banner ad
   void _createBannerAd() {
     _bannerAd = BannerAd(
-      adUnitId: _testBannerAdUnitId,
+      adUnitId: SubscriptionConstants.bannerAdUnitId,
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -490,14 +587,12 @@ class SubscriptionProvider extends ChangeNotifier {
         },
       ),
     );
-
     _bannerAd?.load();
   }
 
-  // Create interstitial ad
   void _createInterstitialAd() {
     InterstitialAd.load(
-      adUnitId: _testInterstitialAdUnitId,
+      adUnitId: SubscriptionConstants.interstitialAdUnitId,
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
@@ -514,18 +609,17 @@ class SubscriptionProvider extends ChangeNotifier {
     );
   }
 
-  // Show interstitial ad
   void showInterstitialAd() {
     if (_isInterstitialAdReady && !_isSubscribed) {
       _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
           ad.dispose();
-          _createInterstitialAd(); // Create a new ad for next time
+          _createInterstitialAd();
         },
         onAdFailedToShowFullScreenContent: (ad, error) {
           _logger.warning('Failed to show interstitial ad: $error');
           ad.dispose();
-          _createInterstitialAd(); // Create a new ad for next time
+          _createInterstitialAd();
         },
       );
       _interstitialAd?.show();
@@ -533,160 +627,26 @@ class SubscriptionProvider extends ChangeNotifier {
     }
   }
 
-  // Dispose banner ad
   void _disposeBannerAd() {
     _bannerAd?.dispose();
     _bannerAd = null;
     _isBannerAdReady = false;
   }
 
-  // Should show ads based on app load count for better user experience
+  /// Whether ads should be shown. Purely synchronous — no async race conditions.
   bool shouldShowAds() {
-    // Don't show ads if user is subscribed
     if (_isSubscribed) return false;
-
-    // Added check with FeatureAccessController for ad-free feature
-    try {
-      final featureAccessController = FeatureAccessController();
-      final user = FirebaseAuth.instance.currentUser;
-
-      if (user != null) {
-        final databaseService = _databaseService;
-
-        // Using the non-awaited version to make this method synchronous
-        // This is fine for UI decisions as we already have _isSubscribed check
-        databaseService.getUserData(user.uid).then((userData) {
-          if (userData != null) {
-            featureAccessController
-                .hasAccess(userData, 'ad_free')
-                .then((hasAccess) {
-              // If user should have ad-free, update internal state
-              if (hasAccess && _isSubscribed != hasAccess) {
-                _isSubscribed = hasAccess;
-                notifyListeners();
-              }
-            });
-          }
-        });
-      }
-    } catch (e) {
-      _logger.warning('Error in ad-free check: $e');
-      // Continue with default behavior
-    }
-
-    // Show ads on every 3rd app load to avoid overwhelming new users
     return _appLoadCount % 3 == 0;
   }
 
-  // For development/testing - creates a temporary mock subscription
-  Future<void> createTemporaryMockSubscription() async {
-    _isLoading = true;
-    notifyListeners();
+  // ─── Utility ─────────────────────────────────────────────────────────
 
-    try {
-      // Simulate subscription purchase
-      _isSubscribed = true;
-      _subscriptionEndDate = DateTime.now().add(const Duration(days: 30));
-
-      // Save to local preferences
-      await _saveSubscriptionStatusToPrefs();
-
-      // Save to database if user is logged in
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await _saveSubscriptionToDatabase(user.uid);
-      }
-
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _logger.warning('Error creating mock subscription: $e');
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Set subscription status manually (for UI testing or admin functions)
-  Future<void> setSubscriptionStatus(
-      bool isSubscribed, DateTime endDate) async {
-    try {
-      _isLoading = true;
-      notifyListeners();
-
-      _isSubscribed = isSubscribed;
-      _subscriptionEndDate = endDate;
-
-      // Save to local preferences
-      await _saveSubscriptionStatusToPrefs();
-
-      // Save to database if user is logged in
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await _saveSubscriptionToDatabase(user.uid);
-      }
-
-      // Dispose ads if subscribed
-      if (isSubscribed) {
-        _disposeBannerAd();
-      }
-
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _logger.warning('Error setting subscription status: $e');
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Cancel subscription
-  Future<void> cancelSubscription() async {
-    try {
-      _isLoading = true;
-      notifyListeners();
-
-      // In a real app, this would call your server to cancel the subscription
-      // We just update the status locally in this demo
-
-      // Mark subscription to end at the current end date (no renewal)
-      // We don't immediately cancel the subscription - user can use it until the end date
-
-      // If there's no current valid subscription, just reset everything
-      if (_subscriptionEndDate == null ||
-          _subscriptionEndDate!.isBefore(DateTime.now())) {
-        _isSubscribed = false;
-        _subscriptionEndDate = null;
-      }
-
-      // Save to local preferences
-      await _saveSubscriptionStatusToPrefs();
-
-      // Save to database if user is logged in
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await _saveSubscriptionToDatabase(user.uid);
-      }
-
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _logger.warning('Error canceling subscription: $e');
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Force exit loading state - useful when IAP initialization hangs
+  /// Force exit loading state when IAP initialization hangs.
   void forceExitLoadingState() {
     if (_isLoading) {
       _logger.warning('Forcing exit from loading state');
       _isLoading = false;
-
-      // Create fallback products if needed
-      if (_products.isEmpty) {
-        _createFallbackProducts();
-      }
-
+      if (_products.isEmpty) _createFallbackProducts();
       notifyListeners();
     }
   }

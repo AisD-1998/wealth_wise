@@ -53,7 +53,7 @@ class Budget {
 
   double get remainingAmount => amount - spent;
 
-  double get percentUsed => spent / amount * 100;
+  double get percentUsed => amount > 0 ? (spent / amount * 100) : 0.0;
 
   bool get isOverBudget => spent > amount;
 

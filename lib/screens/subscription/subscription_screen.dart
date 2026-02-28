@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
+import 'package:wealth_wise/constants/subscription_constants.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
-import 'package:wealth_wise/services/billing_service.dart';
 import 'package:wealth_wise/theme/app_theme.dart';
 
 // Animation widget for delayed entrance animation
@@ -395,6 +396,23 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ),
         ),
 
+        const SizedBox(height: 8),
+
+        // Restore Purchases Button
+        TextButton(
+          onPressed: () => _handleRestorePurchases(context),
+          style: TextButton.styleFrom(
+            foregroundColor: subtextColor,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+          child: const Text(
+            'Restore Purchases',
+            style: TextStyle(
+              fontSize: 14,
+            ),
+          ),
+        ),
+
         const SizedBox(height: 20),
 
         // Legal text at the bottom
@@ -413,15 +431,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  String _getProductPrice(SubscriptionProvider provider, String productId) {
+    try {
+      return provider.products.firstWhere((p) => p.id == productId).price;
+    } catch (_) {
+      return productId.contains('annual')
+          ? SubscriptionConstants.annualFallbackPriceDisplay
+          : SubscriptionConstants.monthlyFallbackPriceDisplay;
+    }
+  }
+
   // Side by side subscription plans (for larger screens)
   Widget _buildSideBySidePlans(SubscriptionProvider provider, bool isDarkMode,
       Color textColor, Color subtextColor, Color cardColor) {
+    final monthlyPrice = _getProductPrice(provider, SubscriptionConstants.monthlyProductId);
+    final annualPrice = _getProductPrice(provider, SubscriptionConstants.annualProductId);
+
     return Row(
       children: [
         Expanded(
           child: _buildPlanCard(
             title: 'Monthly',
-            price: '\$3.99',
+            price: monthlyPrice,
             subtitle: 'per month',
             isSelected: _selectedPlanIndex == 1,
             features: ['Basic features', 'No ads'],
@@ -441,8 +472,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         Expanded(
           child: _buildPlanCard(
             title: 'Annual',
-            price: '\$33.49',
-            subtitle: 'per year (\$2.79/month)',
+            price: annualPrice,
+            subtitle: 'per year',
             isSelected: _selectedPlanIndex == 2,
             features: ['All features', 'Priority support'],
             isDarkMode: isDarkMode,
@@ -455,7 +486,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               });
               _playHapticFeedback();
             },
-            discount: '30% OFF',
+            discount: SubscriptionConstants.annualDiscountLabel,
           ),
         ),
       ],
@@ -465,11 +496,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   // Stacked subscription plans (for smaller screens)
   Widget _buildStackedPlans(SubscriptionProvider provider, bool isDarkMode,
       Color textColor, Color subtextColor, Color cardColor) {
+    final monthlyPrice = _getProductPrice(provider, SubscriptionConstants.monthlyProductId);
+    final annualPrice = _getProductPrice(provider, SubscriptionConstants.annualProductId);
+
     return Column(
       children: [
         _buildPlanCard(
           title: 'Monthly',
-          price: '\$3.99',
+          price: monthlyPrice,
           subtitle: 'per month',
           isSelected: _selectedPlanIndex == 1,
           features: [],
@@ -487,8 +521,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         const SizedBox(height: 16),
         _buildPlanCard(
           title: 'Annual',
-          price: '\$33.49',
-          subtitle: 'per year (\$2.79/month)',
+          price: annualPrice,
+          subtitle: 'per year',
           isSelected: _selectedPlanIndex == 2,
           features: [],
           isDarkMode: isDarkMode,
@@ -501,7 +535,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             });
             _playHapticFeedback();
           },
-          discount: '30% OFF',
+          discount: SubscriptionConstants.annualDiscountLabel,
         ),
       ],
     );
@@ -662,75 +696,91 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }).toList();
   }
 
-  // Handle subscription purchase
+  // Handle subscription purchase via real IAP
   void _handleSubscriptionPurchase(BuildContext context) async {
-    // Capture all context-dependent values before async operations
-    final billingService = Provider.of<BillingService>(context, listen: false);
     final provider = Provider.of<SubscriptionProvider>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigatorState = Navigator.of(context);
 
-    // Haptic feedback
     HapticFeedback.mediumImpact();
 
-    // Show loading indicator
+    // Determine which product ID to purchase
+    final productId = _selectedPlanIndex == 2
+        ? SubscriptionConstants.annualProductId
+        : SubscriptionConstants.monthlyProductId;
+
+    // Find the matching ProductDetails from the store
+    final product = provider.products.cast<ProductDetails?>().firstWhere(
+          (p) => p!.id == productId,
+          orElse: () => null,
+        );
+
+    if (product == null) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Product not available. Please try again later.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     scaffoldMessenger.showSnackBar(
       const SnackBar(
-        content: Text('Processing your subscription...'),
+        content: Text('Opening store...'),
         duration: Duration(seconds: 2),
       ),
     );
 
     try {
-      // Get the appropriate mock plan ID based on selection
-      String planId =
-          _selectedPlanIndex == 2 ? 'wealthwise_annual' : 'wealthwise_monthly';
-
-      // Call the mock purchase process instead of the real one
-      final success = await billingService.processPurchase(planId);
-
-      if (success) {
-        // Also update the provider's subscription status for UI updates
-        await provider.setSubscriptionStatus(
-            true,
-            _selectedPlanIndex == 2
-                ? DateTime.now().add(const Duration(days: 365))
-                : DateTime.now().add(const Duration(days: 30)));
-
-        // Reload provider state to update UI globally
-        await provider.initialize();
-
-        // Subscription was successful - show success
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Subscription successful!'),
-              backgroundColor: AppTheme.primaryGreen,
-              duration: Duration(seconds: 2),
-            ),
-          );
-
-          // Return to previous screen
-          navigatorState.pop();
-        }
-      } else {
-        // Show error message
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text(
-                  'Failed to process your subscription. Please try again.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
+      // Initiate real IAP purchase — result delivered via purchase stream
+      await provider.buySubscription(product);
     } catch (e) {
-      // Handle exceptions
       if (mounted) {
         scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('An error occurred: $e'),
+            content: Text('Purchase failed: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // Restore previous purchases
+  void _handleRestorePurchases(BuildContext context) async {
+    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    HapticFeedback.mediumImpact();
+
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Restoring purchases...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      await provider.restorePurchases();
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              provider.isSubscribed
+                  ? 'Subscription restored successfully!'
+                  : 'No previous subscription found.',
+            ),
+            backgroundColor:
+                provider.isSubscribed ? AppTheme.primaryGreen : null,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Restore failed: $e'),
             duration: const Duration(seconds: 3),
           ),
         );

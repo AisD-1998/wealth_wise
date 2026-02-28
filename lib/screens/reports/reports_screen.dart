@@ -10,6 +10,7 @@ import 'package:wealth_wise/controllers/feature_access_controller.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/services/database_service.dart';
 import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
+import 'package:wealth_wise/screens/export/export_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -162,6 +163,16 @@ class _ReportsScreenState extends State<ReportsScreen>
       appBar: AppBar(
         title: const Text('Reports'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Export Data',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ExportScreen()),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.calendar_today),
             tooltip: 'Select timeframe',

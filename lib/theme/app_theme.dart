@@ -117,7 +117,7 @@ class AppTheme {
           );
         }),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         clipBehavior: Clip.antiAliasWithSaveLayer,
         elevation: 1,
         shadowColor: Colors.black38,
@@ -277,7 +277,7 @@ class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -428,7 +428,7 @@ class AppTheme {
           );
         }),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         clipBehavior: Clip.antiAliasWithSaveLayer,
         elevation: 4,
         shadowColor: Colors.black87,
@@ -590,7 +590,7 @@ class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: Color(0xFF242424),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),

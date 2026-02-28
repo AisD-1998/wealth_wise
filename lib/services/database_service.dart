@@ -11,6 +11,8 @@ import 'package:wealth_wise/models/saving_goal.dart';
 import 'package:wealth_wise/models/user.dart' as app_user;
 import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:wealth_wise/models/category.dart';
+import 'package:wealth_wise/models/bill_reminder.dart';
+import 'package:wealth_wise/models/investment.dart';
 
 class DatabaseService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -29,6 +31,10 @@ class DatabaseService {
       FirebaseFirestore.instance.collection('savingGoals');
   final CollectionReference _categoriesCollection =
       FirebaseFirestore.instance.collection('categories');
+  final CollectionReference _billRemindersCollection =
+      FirebaseFirestore.instance.collection('billReminders');
+  final CollectionReference _investmentsCollection =
+      FirebaseFirestore.instance.collection('investments');
 
   // Transactions
   Future<List<app_transaction.Transaction>> getTransactions(String userId,
@@ -556,8 +562,8 @@ class DatabaseService {
     }
   }
 
-  // Update user data
-  Future<void> updateUserData(app_user.User user) async {
+  // Update user data. Returns true on success, false on failure.
+  Future<bool> updateUserData(app_user.User user) async {
     try {
       // Check if the document exists first
       final doc = await _usersCollection.doc(user.uid).get();
@@ -569,8 +575,10 @@ class DatabaseService {
         // Create new document if it doesn't exist
         await _usersCollection.doc(user.uid).set(user.toMap());
       }
+      return true;
     } catch (e) {
       _logger.warning('Error updating user data: $e');
+      return false;
     }
   }
 
@@ -794,6 +802,109 @@ class DatabaseService {
     } catch (e) {
       _logger.severe('Error initializing default categories: $e');
       throw Exception('Failed to initialize default categories: $e');
+    }
+  }
+
+  // ─── Bill Reminders ──────────────────────────────────────────────────
+
+  Future<List<BillReminder>> getBillReminders(String userId) async {
+    try {
+      final query = await _billRemindersCollection
+          .where('userId', isEqualTo: userId)
+          .orderBy('dueDate')
+          .get();
+
+      return query.docs
+          .map((doc) =>
+              BillReminder.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+    } catch (e) {
+      _logger.warning('Error getting bill reminders: $e');
+      return [];
+    }
+  }
+
+  Future<BillReminder> addBillReminder(BillReminder bill) async {
+    try {
+      final newId = _uuid.v4();
+      final newBill = bill.copyWith(id: newId);
+      await _billRemindersCollection.doc(newId).set(newBill.toMap());
+      return newBill;
+    } catch (e) {
+      _logger.warning('Error adding bill reminder: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> updateBillReminder(BillReminder bill) async {
+    try {
+      if (bill.id == null) return false;
+      await _billRemindersCollection.doc(bill.id).update(bill.toMap());
+      return true;
+    } catch (e) {
+      _logger.warning('Error updating bill reminder: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteBillReminder(String billId) async {
+    try {
+      await _billRemindersCollection.doc(billId).delete();
+      return true;
+    } catch (e) {
+      _logger.warning('Error deleting bill reminder: $e');
+      return false;
+    }
+  }
+
+  // ─── Investments ──────────────────────────────────────────────────
+
+  Future<List<Investment>> getInvestments(String userId) async {
+    try {
+      final query = await _investmentsCollection
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      return query.docs
+          .map((doc) =>
+              Investment.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+    } catch (e) {
+      _logger.warning('Error getting investments: $e');
+      return [];
+    }
+  }
+
+  Future<Investment> addInvestment(Investment investment) async {
+    try {
+      final newId = _uuid.v4();
+      final newInv = investment.copyWith(id: newId);
+      await _investmentsCollection.doc(newId).set(newInv.toMap());
+      return newInv;
+    } catch (e) {
+      _logger.warning('Error adding investment: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> updateInvestment(Investment investment) async {
+    try {
+      if (investment.id == null) return false;
+      await _investmentsCollection.doc(investment.id).update(investment.toMap());
+      return true;
+    } catch (e) {
+      _logger.warning('Error updating investment: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteInvestment(String investmentId) async {
+    try {
+      await _investmentsCollection.doc(investmentId).delete();
+      return true;
+    } catch (e) {
+      _logger.warning('Error deleting investment: $e');
+      return false;
     }
   }
 

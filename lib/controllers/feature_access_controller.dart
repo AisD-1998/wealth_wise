@@ -1,6 +1,5 @@
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/models/user.dart';
-import 'package:wealth_wise/services/billing_service.dart';
 
 class FeatureAccessController {
   static final FeatureAccessController _instance =
@@ -52,13 +51,10 @@ class FeatureAccessController {
 
     // Check if user has an active subscription
     if (user.isSubscribed) {
-      // If subscription is active but past end date, verify with billing service
+      // If subscription end date has passed, treat as expired
       if (user.subscriptionEndDate != null &&
           user.subscriptionEndDate!.isBefore(DateTime.now())) {
-        // Double check with billing service to ensure local data is accurate
-        final billingService = BillingService();
-        final isStillSubscribed = await billingService.isUserSubscribed();
-        return isStillSubscribed;
+        return false;
       }
       return true;
     }

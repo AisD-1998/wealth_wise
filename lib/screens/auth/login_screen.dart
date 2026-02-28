@@ -26,7 +26,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  final bool _rememberMe = false;
   final _logger = Logger('LoginScreen');
 
   @override
@@ -97,10 +96,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
 
-        if (_rememberMe) {
-          _saveCredentials(
-              _emailController.text.trim(), _passwordController.text.trim());
-        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -169,7 +164,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your email';
                     }
-                    if (!value.contains('@')) {
+                    final emailRegex = RegExp(
+                        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+                    if (!emailRegex.hasMatch(value)) {
                       return 'Please enter a valid email';
                     }
                     return null;
@@ -730,9 +727,4 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _saveCredentials(String email, String password) {
-    // For security reasons, we'll only implement this if we add secure storage
-    // This is a placeholder method
-    _logger.info('Credentials would be saved here if implemented');
-  }
 }

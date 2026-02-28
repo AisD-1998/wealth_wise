@@ -15,7 +15,7 @@ class DeleteAccountScreen extends StatefulWidget {
 class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   final _formKey = GlobalKey<FormState>();
   final _passwordController = TextEditingController();
-  final bool _obscurePassword = true;
+  bool _obscurePassword = true;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -472,8 +472,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                     ),
                     onPressed: () {
                       setState(() {
-                        // This would toggle the visibility in a normal implementation
-                        // But since we've made _obscurePassword final, we don't modify it
+                        _obscurePassword = !_obscurePassword;
                       });
                     },
                   ),

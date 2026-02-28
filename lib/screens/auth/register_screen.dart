@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/screens/home/home_screen.dart';
-import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/widgets/loading_indicator.dart';
 import 'package:wealth_wise/widgets/custom_action_button.dart';
 
@@ -155,14 +154,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _navigateToLogin() {
-    // First close the register screen
+    // Login screen is already on the stack — just pop back to it
     Navigator.of(context).pop();
-
-    // Then push the login screen if not already on it
-    // This ensures we go to login even when the register screen was opened from another page
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
   }
 
   // Helper method to show account exists dialog

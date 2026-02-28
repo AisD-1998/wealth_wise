@@ -9,8 +9,6 @@ import 'package:wealth_wise/screens/auth/login_screen.dart';
 
 import 'package:wealth_wise/screens/home/home_screen.dart';
 import 'package:wealth_wise/screens/onboarding/onboarding_screen.dart';
-import 'package:wealth_wise/screens/settings/settings_screen.dart';
-
 import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
 
@@ -20,45 +18,18 @@ import 'package:wealth_wise/theme/app_theme.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
 import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/providers/category_provider.dart';
-import 'package:wealth_wise/providers/expense_provider.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/providers/currency_provider.dart';
 import 'package:wealth_wise/providers/notification_provider.dart';
 import 'package:wealth_wise/providers/user_preferences_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:wealth_wise/widgets/loading_indicator.dart';
 import 'package:wealth_wise/providers/theme_provider.dart';
-import 'package:wealth_wise/services/billing_service.dart';
 import 'package:wealth_wise/providers/biometric_auth_provider.dart';
-
-// Flag to toggle Firebase auth (set to false for demo mode)
-const bool useFirebase = true;
-
-// SharedPrefs implementation
-class SharedPrefs {
-  static final Map<String, dynamic> _prefs = {};
-
-  static Future<void> init() async {
-    // Mock initialization for now
-    _prefs['hasCompletedOnboarding'] = false;
-  }
-
-  static bool? getBool(String key) {
-    return _prefs[key] as bool?;
-  }
-
-  static Future<void> setBool(String key, bool value) async {
-    _prefs[key] = value;
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize SharedPrefs
-  await SharedPrefs.init();
 
   // Initialize Firebase
   await Firebase.initializeApp(
@@ -68,41 +39,26 @@ void main() async {
   // Initialize SharedPreferences
   final prefs = await SharedPreferences.getInstance();
 
-  // Configure logger
-  Logger.root.level = Level.ALL;
+  // Configure logger — verbose in debug, warnings only in release
+  Logger.root.level = kDebugMode ? Level.ALL : Level.WARNING;
   Logger.root.onRecord.listen((record) {
     if (kDebugMode) {
       print('${record.level.name}: ${record.time}: ${record.message}');
     }
   });
 
-  // Initialize MobileAds with test app ID
+  // Initialize MobileAds
   await MobileAds.instance.initialize();
 
-  // Initialize billing service
-  final billingService = BillingService();
-  await billingService.initialize();
-
-  // Ensure in_app_purchase is initialized
-  final inAppPurchase = InAppPurchase.instance;
-  final isAvailable = await inAppPurchase.isAvailable();
-  final logger = Logger('Main');
-  if (!isAvailable) {
-    logger.warning('In-app purchase is not available on this device');
-  } else {
-    logger.info('In-app purchase is available on this device');
-  }
-
-  // Create providers
+  // Create services
   final authService = AuthService();
   final databaseService = DatabaseService();
 
-  // Run the app
+  // Run the app (SubscriptionProvider handles its own IAP initialization)
   runApp(MyApp(
     prefs: prefs,
     authService: authService,
     databaseService: databaseService,
-    billingService: billingService,
   ));
 }
 
@@ -110,14 +66,12 @@ class MyApp extends StatefulWidget {
   final SharedPreferences prefs;
   final AuthService authService;
   final DatabaseService databaseService;
-  final BillingService billingService;
 
   const MyApp({
     super.key,
     required this.prefs,
     required this.authService,
     required this.databaseService,
-    required this.billingService,
   });
 
   @override
@@ -231,8 +185,6 @@ class _MyAppState extends State<MyApp> {
         // 1. First provide services that don't depend on other providers
         Provider<DatabaseService>.value(value: widget.databaseService),
         Provider<AuthService>.value(value: widget.authService),
-        Provider<BillingService>.value(value: widget.billingService),
-
         // 2. Auth provider must be initialized first
         ChangeNotifierProvider(create: (_) => AuthProvider()),
 
@@ -242,10 +194,7 @@ class _MyAppState extends State<MyApp> {
         // 4. Finance provider
         ChangeNotifierProvider(create: (_) => FinanceProvider()),
 
-        // 5. Expense provider
-        ChangeNotifierProvider(create: (_) => ExpenseProvider()),
-
-        // 6. Subscription provider
+        // 5. Subscription provider
         ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
 
         // 7. Theme provider
@@ -389,51 +338,3 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-// Demo home screen when running without Firebase
-class DemoHomeScreen extends StatelessWidget {
-  const DemoHomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('WealthWise Demo'),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.account_balance_wallet,
-              size: 80,
-              color: Colors.blue,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'WealthWise Demo Mode',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Running without Firebase for testing purposes',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 30),
-            // Use ElevatedButton instead while we sort out the shadcn_ui integration
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const SettingsScreen()));
-              },
-              child: const Text('Go to Settings'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Simple version of settings screen for demo mode not used anymore since we're using the real SettingsScreen

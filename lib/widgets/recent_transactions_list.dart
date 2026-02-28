@@ -6,11 +6,13 @@ import 'package:wealth_wise/utils/currency_formatter.dart';
 class RecentTransactionsList extends StatelessWidget {
   final List<Transaction> transactions;
   final VoidCallback? onSeeAllPressed;
+  final void Function(Transaction)? onTransactionTap;
 
   const RecentTransactionsList({
     super.key,
     required this.transactions,
     this.onSeeAllPressed,
+    this.onTransactionTap,
   });
 
   @override
@@ -169,9 +171,9 @@ class RecentTransactionsList extends StatelessWidget {
           fontWeight: FontWeight.bold,
         ),
       ),
-      onTap: () {
-        // Navigate to transaction detail or edit screen
-      },
+      onTap: onTransactionTap != null
+          ? () => onTransactionTap!(transaction)
+          : null,
     );
   }
 }

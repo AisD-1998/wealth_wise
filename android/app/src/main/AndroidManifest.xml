@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.wealth_wise">
+    package="com.example.wealth_wise"> <!-- TODO(account-setup): Replace with real package name -->
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
@@ -15,6 +15,7 @@
             android:value="@string/facebook_client_token"/>
             
         <!-- AdMob Application ID -->
+        <!-- TODO(account-setup): Replace test AdMob app ID with production ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-3940256099942544~3347511713"/>
@@ -89,5 +90,4 @@
     <!-- Add required permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 </manifest>

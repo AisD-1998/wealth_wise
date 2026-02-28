@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
@@ -6,11 +8,20 @@ import 'package:wealth_wise/models/user.dart' as app_user;
 import 'package:logging/logging.dart';
 
 class AuthService {
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FacebookAuth _facebookAuth = FacebookAuth.instance;
   final Logger _logger = Logger('AuthService');
+
+  /// Hashes a PIN using SHA-256 so it is never stored in plaintext.
+  static String hashPin(String pin) {
+    return sha256.convert(utf8.encode(pin)).toString();
+  }
 
   // Get the current user stream
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -172,15 +183,19 @@ class AuthService {
       if (userCredential.additionalUserInfo?.isNewUser == true) {
         _logger.info(
             'New user signed in with Google, creating Firestore document');
-        // Create user document in Firestore
-        await _firestore.collection('users').doc(userCredential.user?.uid).set({
-          'email': userCredential.user?.email,
-          'displayName': userCredential.user?.displayName,
-          'photoUrl': userCredential.user?.photoURL,
-          'createdAt': FieldValue.serverTimestamp(),
-          'provider': 'google',
-          'balance': 0.0,
-        });
+        final newUser = app_user.User(
+          uid: userCredential.user!.uid,
+          email: userCredential.user?.email ?? '',
+          displayName: userCredential.user?.displayName,
+          photoUrl: userCredential.user?.photoURL,
+          balance: 0.0,
+          createdAt: DateTime.now(),
+          lastLoginAt: DateTime.now(),
+        );
+        await _firestore
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .set(newUser.toMap());
       }
 
       _logger.info('Google sign in successful');
@@ -231,15 +246,19 @@ class AuthService {
       if (userCredential.additionalUserInfo?.isNewUser == true) {
         _logger.info(
             'New user signed in with Facebook, creating Firestore document');
-        // Create user document in Firestore
-        await _firestore.collection('users').doc(userCredential.user?.uid).set({
-          'email': userCredential.user?.email,
-          'displayName': userCredential.user?.displayName,
-          'photoUrl': userCredential.user?.photoURL,
-          'createdAt': FieldValue.serverTimestamp(),
-          'provider': 'facebook',
-          'balance': 0.0,
-        });
+        final newUser = app_user.User(
+          uid: userCredential.user!.uid,
+          email: userCredential.user?.email ?? '',
+          displayName: userCredential.user?.displayName,
+          photoUrl: userCredential.user?.photoURL,
+          balance: 0.0,
+          createdAt: DateTime.now(),
+          lastLoginAt: DateTime.now(),
+        );
+        await _firestore
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .set(newUser.toMap());
       }
 
       _logger.info('Facebook sign in successful');
@@ -282,7 +301,7 @@ class AuthService {
         if (currency != null) 'currency': currency,
         if (useBiometrics != null) 'useBiometrics': useBiometrics,
         if (usePin != null) 'usePin': usePin,
-        if (pin != null) 'pin': pin,
+        if (pin != null) 'pin': hashPin(pin),
         'lastUpdated': FieldValue.serverTimestamp(),
       });
     } catch (e) {
@@ -313,34 +332,12 @@ class AuthService {
     }
   }
 
-  // Sign in with email link for biometric authentication
+  // Biometric sign-in requires stored credentials or a backend custom token flow.
+  // Anonymous auth is NOT a valid substitute.
   Future<UserCredential> signInWithEmailLink(String email) async {
-    try {
-      _logger.info(
-          'Attempting sign in with email link for biometric authentication');
-
-      // Since we can't actually send email links in this context,
-      // and this is specifically for biometric auth where the user has already
-      // proven ownership of the device via biometrics,
-      // we'll use a custom authentication approach for biometric login
-
-      // Remove email verification step as fetchSignInMethodsForEmail is deprecated
-      // This is more secure as it prevents email enumeration attacks
-
-      // For testing/demo purposes, since we can't implement a full
-      // custom token auth flow without a backend, we'll use anonymous auth
-      final anonymousCredential = await _auth.signInAnonymously();
-
-      // In a real implementation, you would:
-      // 1. Call your backend API that verifies the user and generates a custom token
-      // 2. Sign in with that custom token
-      // For example: await _auth.signInWithCustomToken(customToken);
-
-      _logger.info('Email link sign in successful (demo implementation)');
-      return anonymousCredential;
-    } catch (e) {
-      _logger.severe('Error signing in with email link: $e');
-      throw Exception('Email link sign in failed: $e');
-    }
+    throw UnimplementedError(
+      'Email link sign-in requires a backend server to generate custom tokens. '
+      'Use signInWithEmailPassword or social sign-in instead.',
+    );
   }
 }

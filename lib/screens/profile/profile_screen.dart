@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wealth_wise/models/achievement.dart';
 import 'package:wealth_wise/providers/auth_provider.dart';
+import 'package:wealth_wise/providers/finance_provider.dart';
+import 'package:wealth_wise/providers/subscription_provider.dart';
 import 'package:wealth_wise/models/user.dart';
 import 'package:wealth_wise/screens/settings/settings_screen.dart';
 import 'package:wealth_wise/screens/auth/login_screen.dart';
@@ -162,6 +165,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           const SizedBox(height: 24),
 
+          // Achievements Section
+          _buildAchievementsSection(context),
+
+          const SizedBox(height: 24),
+
           // Account options
           _buildSectionTitle(context, 'Account'),
           Card(
@@ -191,10 +199,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.notifications_outlined,
                   title: 'Notifications',
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Notification settings coming soon'),
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SettingsScreen()),
                     );
                   },
                 ),
@@ -205,10 +213,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Language',
                   subtitle: 'English',
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Language settings coming soon'),
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SettingsScreen()),
                     );
                   },
                 ),
@@ -266,10 +274,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Currency',
                   subtitle: 'USD',
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Currency settings coming soon'),
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SettingsScreen()),
                     );
                   },
                 ),
@@ -294,10 +302,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.help_outline,
                   title: 'Help & Support',
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Help & Support coming soon'),
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SettingsScreen()),
                     );
                   },
                 ),
@@ -316,7 +324,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: theme.colorScheme.primary,
                         size: 48,
                       ),
-                      applicationLegalese: '© 2023 WealthWise',
+                      applicationLegalese: '© ${DateTime.now().year} WealthWise',
                       children: [
                         const SizedBox(height: 16),
                         const Text(
@@ -383,6 +391,174 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildAchievementsSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final financeProvider = Provider.of<FinanceProvider>(context);
+    final subProvider = Provider.of<SubscriptionProvider>(context);
+    final isPremium = subProvider.isSubscribed;
+    final achievements = financeProvider.achievements;
+    final streak = financeProvider.currentStreak;
+
+    // Filter: free users see only non-premium achievements
+    final visibleAchievements = isPremium
+        ? achievements
+        : achievements.where((a) => !a.isPremium).toList();
+    final unlockedCount =
+        visibleAchievements.where((a) => a.isUnlocked).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle(context, 'Achievements'),
+        // Streak display
+        if (streak > 0)
+          Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 12),
+            color: Colors.orange.shade50,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.local_fire_department,
+                      color: Colors.orange, size: 32),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$streak-day streak',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange.shade800,
+                        ),
+                      ),
+                      Text(
+                        'Keep logging daily!',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.orange.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // Achievement count
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '$unlockedCount / ${visibleAchievements.length} unlocked',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+
+        // Achievement badges grid
+        Card(
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: visibleAchievements
+                  .map((a) => _buildAchievementBadge(context, a))
+                  .toList(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAchievementBadge(BuildContext context, Achievement achievement) {
+    final theme = Theme.of(context);
+    final isUnlocked = achievement.isUnlocked;
+
+    return Tooltip(
+      message: '${achievement.title}: ${achievement.description}',
+      child: Container(
+        width: 70,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isUnlocked
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 80)
+              : theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 80),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _getAchievementIcon(achievement.iconName),
+              size: 28,
+              color: isUnlocked
+                  ? theme.colorScheme.primary
+                  : Colors.grey.shade400,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              achievement.title,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+                color: isUnlocked
+                    ? theme.colorScheme.onSurface
+                    : Colors.grey.shade400,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _getAchievementIcon(String iconName) {
+    switch (iconName) {
+      case 'star':
+        return Icons.star;
+      case 'shield':
+        return Icons.shield;
+      case 'local_fire_department':
+        return Icons.local_fire_department;
+      case 'emoji_events':
+        return Icons.emoji_events;
+      case 'military_tech':
+        return Icons.military_tech;
+      case 'savings':
+        return Icons.savings;
+      case 'category':
+        return Icons.category;
+      case 'hundred_mp':
+        return Icons.looks_one;
+      case 'flag':
+        return Icons.flag;
+      case 'account_balance':
+        return Icons.account_balance;
+      case 'whatshot':
+        return Icons.whatshot;
+      case 'trending_up':
+        return Icons.trending_up;
+      default:
+        return Icons.emoji_events;
+    }
   }
 
   Widget _buildSectionTitle(BuildContext context, String title) {

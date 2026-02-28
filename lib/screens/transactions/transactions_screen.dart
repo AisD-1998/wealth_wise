@@ -22,7 +22,8 @@ class TransactionsScreen extends StatefulWidget {
 class _TransactionsScreenState extends State<TransactionsScreen> {
   app_model.TransactionType? _filterType;
   bool _isLoading = false;
-  String _debugInfo = "";
+  String _searchQuery = '';
+  bool _isSearching = false;
   final Logger _logger = Logger('TransactionsScreen');
 
   @override
@@ -37,7 +38,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (mounted) {
       setState(() {
         _isLoading = true;
-        _debugInfo = "Loading transactions...";
       });
     }
 
@@ -50,7 +50,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
       if (authProvider.user != null) {
         String userId = authProvider.user!.uid;
-        _debugInfo += "\nUser ID: $userId";
         _logger.info('User ID: $userId');
 
         // Force a complete reload of the data
@@ -58,7 +57,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
         // Get transaction count for debugging
         int count = financeProvider.transactions.length;
-        _debugInfo += "\nTransactions loaded via provider: $count";
         _logger.info('Transactions loaded via provider: $count');
 
         // Direct Firestore query for debugging
@@ -68,27 +66,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               .where('userId', isEqualTo: userId)
               .get();
 
-          _debugInfo +=
-              "\nDirect Firestore query count: ${snapshot.docs.length}";
           _logger.info('Direct Firestore query count: ${snapshot.docs.length}');
 
           // Log details about first document if available
           if (snapshot.docs.isNotEmpty) {
-            var firstDoc = snapshot.docs.first.data();
-            _debugInfo +=
-                "\nFirst document: ${firstDoc.toString().substring(0, firstDoc.toString().length > 100 ? 100 : firstDoc.toString().length)}...";
             _logger.info('First document found');
           }
         } catch (firestoreError) {
-          _debugInfo += "\nFirestore direct query error: $firestoreError";
           _logger.warning('Firestore direct query error: $firestoreError');
         }
       } else {
-        _debugInfo += "\nNo authenticated user found";
         _logger.warning('No authenticated user found');
       }
     } catch (e) {
-      _debugInfo += "\nError loading transactions: $e";
       _logger.severe('Error loading transactions: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -117,9 +107,36 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           .toList();
     }
 
+    // Apply search filter if searching
+    if (_isSearching && _searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filteredTransactions = filteredTransactions.where((transaction) {
+        final titleMatch = transaction.title.toLowerCase().contains(query);
+        final categoryMatch =
+            transaction.category?.toLowerCase().contains(query) ?? false;
+        final noteMatch =
+            transaction.note?.toLowerCase().contains(query) ?? false;
+        return titleMatch || categoryMatch || noteMatch;
+      }).toList();
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Transactions'),
+        title: _isSearching
+            ? TextField(
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search transactions...',
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(fontSize: 16),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              )
+            : const Text('Transactions'),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -129,115 +146,20 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
             onPressed: () {
-              // Show search bar (future implementation)
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text('Search will be available in future updates')),
-              );
+              setState(() {
+                _isSearching = !_isSearching;
+                if (!_isSearching) {
+                  _searchQuery = '';
+                }
+              });
             },
           ),
           // Add refresh button explicitly
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadTransactions,
-          ),
-          // Add repair data button
-          IconButton(
-            icon: const Icon(Icons.healing),
-            tooltip: 'Repair data',
-            onPressed: () async {
-              // Store context before async operation
-              final scaffoldContext = ScaffoldMessenger.of(context);
-              final navigatorContext = Navigator.of(context);
-              final financeProvider =
-                  Provider.of<FinanceProvider>(context, listen: false);
-
-              // Show loading dialog
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (dialogContext) => const AlertDialog(
-                  title: Text('Repairing Data'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const LoadingIndicator(
-                        size: 30,
-                        message: '',
-                      ),
-                      const SizedBox(height: 16),
-                      Text('Fixing database issues...'),
-                    ],
-                  ),
-                ),
-              );
-
-              try {
-                // Load user finances instead of running migrations
-                final userId = context.read<AuthProvider>().user?.uid;
-                if (userId == null) {
-                  throw Exception('User not authenticated');
-                }
-                await financeProvider.loadUserFinances(userId);
-
-                // Close the dialog - don't use context from closure
-                if (mounted && navigatorContext.canPop()) {
-                  navigatorContext.pop();
-                }
-
-                // Reload transactions
-                await _loadTransactions();
-
-                // Show success message
-                if (mounted) {
-                  scaffoldContext.showSnackBar(
-                    const SnackBar(
-                      content: Text('Data loaded successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                // Close the dialog - don't use context from closure
-                if (mounted && navigatorContext.canPop()) {
-                  navigatorContext.pop();
-                }
-
-                // Show error message
-                if (mounted) {
-                  scaffoldContext.showSnackBar(
-                    SnackBar(
-                      content: Text('Error loading data: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-          ),
-          // Add debug info button
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Debug Info'),
-                  content: SingleChildScrollView(
-                    child: SelectableText(_debugInfo),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                ),
-              );
-            },
           ),
         ],
       ),
@@ -676,7 +598,19 @@ class _TransactionListItemState extends State<TransactionListItem> {
             backgroundColor: iconColor.withValues(alpha: 51),
             child: Icon(iconData, color: iconColor, size: 20),
           ),
-          title: Text(transaction.title),
+          title: Row(
+            children: [
+              Flexible(child: Text(transaction.title)),
+              if (transaction.isRecurring) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  transaction.isPaused ? Icons.pause_circle_outline : Icons.repeat,
+                  size: 16,
+                  color: transaction.isPaused ? Colors.orange : Colors.grey,
+                ),
+              ],
+            ],
+          ),
           subtitle: Text(transaction.category ?? 'Uncategorized'),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,

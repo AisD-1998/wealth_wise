@@ -11,6 +11,13 @@ import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/screens/profile/profile_screen.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
 import 'package:wealth_wise/screens/settings/subscription_screen.dart';
+import 'package:wealth_wise/screens/export/export_screen.dart';
+import 'package:wealth_wise/screens/bills/bills_screen.dart';
+import 'package:wealth_wise/screens/investments/investments_screen.dart';
+import 'package:wealth_wise/screens/reports/monthly_snapshot_screen.dart';
+import 'package:wealth_wise/controllers/feature_access_controller.dart';
+import 'package:wealth_wise/services/database_service.dart';
+import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
 import 'package:wealth_wise/theme/app_theme.dart';
 import 'package:url_launcher/url_launcher_string.dart'
     show launchUrlString, LaunchMode;
@@ -144,6 +151,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<void> _openExportScreen(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user == null) return;
+
+    // Check premium access
+    final userData =
+        await Provider.of<DatabaseService>(context, listen: false)
+            .getUserData(user.uid);
+    final featureAccessController = FeatureAccessController();
+    final hasAccess =
+        await featureAccessController.hasAccess(userData, 'export_data');
+
+    if (!mounted) return;
+
+    if (!hasAccess) {
+      PremiumFeaturePrompt.showPremiumDialog(
+        context,
+        featureName: 'Export Data',
+        description:
+            'Export your financial data as CSV files with a Premium subscription.',
+        icon: Icons.download,
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ExportScreen()),
+    );
+  }
+
+  Future<void> _openBillsScreen(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user == null) return;
+
+    // Check premium access
+    final userData =
+        await Provider.of<DatabaseService>(context, listen: false)
+            .getUserData(user.uid);
+    final featureAccessController = FeatureAccessController();
+    final hasAccess =
+        await featureAccessController.hasAccess(userData, 'bill_reminders');
+
+    if (!mounted) return;
+
+    if (!hasAccess) {
+      PremiumFeaturePrompt.showPremiumDialog(
+        context,
+        featureName: 'Bill Reminders',
+        description:
+            'Track recurring bills and never miss a payment with a Premium subscription.',
+        icon: Icons.receipt_long,
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const BillsScreen()),
+    );
+  }
+
+  Future<void> _openInvestmentsScreen(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user == null) return;
+
+    // Check premium access
+    final userData =
+        await Provider.of<DatabaseService>(context, listen: false)
+            .getUserData(user.uid);
+    final featureAccessController = FeatureAccessController();
+    final hasAccess =
+        await featureAccessController.hasAccess(userData, 'investment_tracking');
+
+    if (!mounted) return;
+
+    if (!hasAccess) {
+      PremiumFeaturePrompt.showPremiumDialog(
+        context,
+        featureName: 'Investment Tracking',
+        description:
+            'Track your investment portfolio with a Premium subscription.',
+        icon: Icons.show_chart,
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const InvestmentsScreen()),
     );
   }
 
@@ -294,6 +400,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.primaryGreen),
                   ),
                   title: const Text('Frequently Asked Questions'),
+                  // TODO(account-setup): Replace with real FAQ URL
                   onTap: () => _launchUrl('https://wealthwise.example.com/faq'),
                 ),
                 const Divider(),
@@ -305,6 +412,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.secondaryBlue),
                   ),
                   title: const Text('Contact Support'),
+                  // TODO(account-setup): Replace with real support email
                   onTap: () =>
                       _launchUrl('mailto:support@wealthwise.example.com'),
                 ),
@@ -317,6 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.neutralGray),
                   ),
                   title: const Text('Terms of Service'),
+                  // TODO(account-setup): Replace with real Terms of Service URL
                   onTap: () =>
                       _launchUrl('https://wealthwise.example.com/terms'),
                 ),
@@ -329,6 +438,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.neutralGray),
                   ),
                   title: const Text('Privacy Policy'),
+                  // TODO(account-setup): Replace with real Privacy Policy URL
                   onTap: () =>
                       _launchUrl('https://wealthwise.example.com/privacy'),
                 ),
@@ -380,6 +490,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ActionChip(
               avatar: const Icon(Icons.star, size: 16),
               label: const Text('Rate App'),
+              // TODO(account-setup): Replace with real Play Store URL
               onPressed: () => _launchUrl(
                   'https://play.google.com/store/apps/details?id=com.example.wealthwise'),
             ),
@@ -575,6 +686,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context) => const CategoriesScreen()),
               );
             },
+          ),
+
+          const Divider(indent: 72, endIndent: 0),
+
+          // Export Data (Premium)
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorScheme.secondaryContainer,
+              child: Icon(
+                Icons.download,
+                color: colorScheme.onSecondaryContainer,
+              ),
+            ),
+            title: const Text('Export Data'),
+            subtitle: const Text('CSV export'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _openExportScreen(context),
+          ),
+
+          const Divider(indent: 72, endIndent: 0),
+
+          // Bill Reminders (Premium)
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorScheme.tertiaryContainer,
+              child: Icon(
+                Icons.receipt_long,
+                color: colorScheme.onTertiaryContainer,
+              ),
+            ),
+            title: const Text('Bill Reminders'),
+            subtitle: const Text('Track recurring bills'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _openBillsScreen(context),
+          ),
+
+          const Divider(indent: 72, endIndent: 0),
+
+          // Investments (Premium)
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorScheme.tertiaryContainer,
+              child: Icon(
+                Icons.show_chart,
+                color: colorScheme.onTertiaryContainer,
+              ),
+            ),
+            title: const Text('Investments'),
+            subtitle: const Text('Track your portfolio'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _openInvestmentsScreen(context),
+          ),
+
+          const Divider(indent: 72, endIndent: 0),
+
+          // Monthly Snapshot
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: colorScheme.tertiaryContainer,
+              child: Icon(
+                Icons.calendar_month,
+                color: colorScheme.onTertiaryContainer,
+              ),
+            ),
+            title: const Text('Monthly Snapshot'),
+            subtitle: const Text('View your monthly summary'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => const MonthlySnapshotScreen()),
+            ),
           ),
 
           const Divider(indent: 72, endIndent: 0),

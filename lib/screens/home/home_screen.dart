@@ -9,6 +9,8 @@ import 'package:wealth_wise/providers/user_preferences_provider.dart';
 import 'package:wealth_wise/models/user_preferences.dart';
 import 'package:wealth_wise/screens/settings/categories_screen.dart';
 import 'package:wealth_wise/screens/savings/savings_screen.dart';
+import 'package:wealth_wise/screens/budgets/budgets_screen.dart';
+import 'package:wealth_wise/screens/bills/bills_screen.dart';
 import 'package:wealth_wise/screens/reports/reports_screen.dart';
 import 'package:wealth_wise/screens/transactions/transactions_screen.dart';
 import 'package:wealth_wise/screens/profile/profile_screen.dart';
@@ -18,8 +20,14 @@ import 'package:wealth_wise/utils/ui_helpers.dart';
 import 'package:wealth_wise/widgets/balance_card.dart';
 import 'package:wealth_wise/widgets/loading_animation_utils.dart';
 import 'package:wealth_wise/utils/currency_formatter.dart';
+import 'package:wealth_wise/models/budget_alert.dart';
 import 'package:wealth_wise/controllers/feature_access_controller.dart';
 import 'package:wealth_wise/services/database_service.dart';
+import 'package:wealth_wise/services/insights_service.dart';
+import 'package:wealth_wise/providers/subscription_provider.dart';
+import 'package:wealth_wise/screens/analytics/premium_analytics_screen.dart';
+import 'package:wealth_wise/screens/investments/investments_screen.dart';
+import 'package:wealth_wise/screens/reports/monthly_snapshot_screen.dart';
 import 'package:wealth_wise/widgets/premium_feature_prompt.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -29,10 +37,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   final PageController _pageController = PageController();
   bool _hasAccessToReports = false;
+  bool _isFabExpanded = false;
 
   final List<Widget> _screens = [
     const HomeScreenDashboard(),
@@ -96,8 +106,52 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildMiniFab({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 26),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FloatingActionButton.small(
+          heroTag: label,
+          onPressed: onTap,
+          backgroundColor: color,
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       body: SafeArea(
         child: PageView(
@@ -107,6 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (index != 4 || _hasAccessToReports) {
               setState(() {
                 _selectedIndex = index;
+                _isFabExpanded = false;
               });
             } else if (index == 4) {
               // If user tries to swipe to Reports page, bounce back to previous page
@@ -119,6 +174,49 @@ class _HomeScreenState extends State<HomeScreen> {
           },
           children: _screens,
         ),
+      ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Expanded mini FABs
+          if (_isFabExpanded) ...[
+            _buildMiniFab(
+              label: 'Add Income',
+              icon: Icons.arrow_upward,
+              color: theme.colorScheme.primary,
+              onTap: () {
+                setState(() => _isFabExpanded = false);
+                UIHelpers.showTransactionForm(
+                    context, TransactionType.income);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildMiniFab(
+              label: 'Add Expense',
+              icon: Icons.arrow_downward,
+              color: theme.colorScheme.error,
+              onTap: () {
+                setState(() => _isFabExpanded = false);
+                UIHelpers.showTransactionForm(
+                    context, TransactionType.expense);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+          // Main FAB
+          FloatingActionButton(
+            onPressed: () {
+              setState(() => _isFabExpanded = !_isFabExpanded);
+            },
+            backgroundColor: theme.colorScheme.primary,
+            child: AnimatedRotation(
+              turns: _isFabExpanded ? 0.125 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+          ),
+        ],
       ),
       appBar: AppBar(
         title: RichText(
@@ -259,12 +357,25 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               income: financeProvider.totalIncome,
               expenses: financeProvider.totalExpenses,
             ),
-            const SizedBox(height: 24.0),
+            const SizedBox(height: 16.0),
+
+            // Streak Card
+            if (financeProvider.currentStreak > 0)
+              _buildStreakCard(context, financeProvider.currentStreak),
+
+            const SizedBox(height: 8.0),
 
             // Personalized content based on user preferences
             if (userPreferencesProvider.userPreferences != null)
               _buildPersonalizedContent(
                   context, userPreferencesProvider.userPreferences!),
+
+            // Budget Alerts Section
+            if (financeProvider.budgetAlerts.isNotEmpty) ...[
+              ...financeProvider.budgetAlerts.map((alert) =>
+                  _buildBudgetAlertCard(context, alert, financeProvider)),
+              const SizedBox(height: 8.0),
+            ],
 
             // Quick Actions Section
             Text(
@@ -279,22 +390,28 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                 Expanded(
                   child: _buildActionCard(
                     context,
-                    icon: Icons.add_circle_outline,
-                    title: 'Add Expense',
-                    onTap: () =>
-                        _showTransactionForm(context, TransactionType.expense),
-                    color: theme.colorScheme.errorContainer,
-                    iconColor: theme.colorScheme.error,
+                    icon: Icons.account_balance_wallet_outlined,
+                    title: 'Budgets',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const BudgetsScreen()),
+                    ),
+                    color: theme.colorScheme.tertiaryContainer,
+                    iconColor: theme.colorScheme.tertiary,
                   ),
                 ),
                 const SizedBox(width: 12.0),
                 Expanded(
                   child: _buildActionCard(
                     context,
-                    icon: Icons.add_circle_outline,
-                    title: 'Add Income',
-                    onTap: () =>
-                        _showTransactionForm(context, TransactionType.income),
+                    icon: Icons.savings_outlined,
+                    title: 'Savings Goals',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SavingsScreen()),
+                    ),
                     color: theme.colorScheme.primaryContainer,
                     iconColor: theme.colorScheme.primary,
                   ),
@@ -302,6 +419,16 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               ],
             ),
 
+            const SizedBox(height: 24.0),
+
+            // Upcoming Bills Section (premium) or teaser (free)
+            _buildUpcomingBillsSection(context, financeProvider),
+
+            // Portfolio Summary (premium) or teaser (free)
+            _buildPortfolioSection(context, financeProvider),
+
+            // Monthly Snapshot Card
+            _buildMonthlySnapshotCard(context),
             const SizedBox(height: 24.0),
 
             // Recent Transactions & Insights
@@ -409,11 +536,32 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
             const SizedBox(height: 24.0),
 
             // Insights Section
-            Text(
-              'Financial Insights',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Text(
+                  'Financial Insights',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Consumer<SubscriptionProvider>(
+                  builder: (context, subProvider, _) {
+                    if (subProvider.isSubscribed) {
+                      return TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) =>
+                                  const PremiumAnalyticsScreen()),
+                        ),
+                        child: const Text('See All'),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 16.0),
             if (authProvider.user == null)
@@ -431,32 +579,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                 Icons.insights_outlined,
               )
             else
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInsightCard(
-                      context,
-                      icon: Icons.savings_outlined,
-                      title: 'Savings Rate',
-                      value:
-                          '${((financeProvider.totalIncome - financeProvider.totalExpenses) / financeProvider.totalIncome * 100).toStringAsFixed(1)}%',
-                      color: theme.colorScheme.tertiaryContainer,
-                      iconColor: theme.colorScheme.tertiary,
-                    ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: _buildInsightCard(
-                      context,
-                      icon: Icons.trending_up,
-                      title: 'Top Category',
-                      value: financeProvider.topExpenseCategory ?? 'N/A',
-                      color: theme.colorScheme.secondaryContainer,
-                      iconColor: theme.colorScheme.secondary,
-                    ),
-                  ),
-                ],
-              ),
+              _buildInsightsSection(context, financeProvider),
           ],
         ),
       ),
@@ -548,10 +671,6 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
         ],
       ),
     );
-  }
-
-  void _showTransactionForm(BuildContext context, TransactionType type) {
-    UIHelpers.showTransactionForm(context, type);
   }
 
   void _showTransactionOptions(BuildContext context, Transaction transaction) {
@@ -793,6 +912,522 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
     );
   }
 
+  Widget _buildUpcomingBillsSection(
+    BuildContext context,
+    FinanceProvider financeProvider,
+  ) {
+    final theme = Theme.of(context);
+
+    return Consumer<SubscriptionProvider>(
+      builder: (context, subProvider, _) {
+        final isPremium = subProvider.isSubscribed;
+
+        // Free users see teaser
+        if (!isPremium) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 24.0),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                    color: theme.colorScheme.primary.withValues(alpha: 60)),
+              ),
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
+              child: InkWell(
+                onTap: () {
+                  PremiumFeaturePrompt.showPremiumDialog(
+                    context,
+                    featureName: 'Bill Reminders',
+                    description:
+                        'Never miss a payment. Track recurring bills, get due date alerts, and log payments automatically.',
+                    icon: Icons.receipt_long,
+                  );
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.receipt_long,
+                          color: theme.colorScheme.primary, size: 28),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Bill Reminders',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Never miss a payment — upgrade to Premium',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.lock_outline,
+                          size: 18, color: theme.colorScheme.primary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        // Premium users see actual upcoming bills
+        final upcoming = financeProvider.upcomingBills;
+        if (upcoming.isEmpty) return const SizedBox.shrink();
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Upcoming Bills',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const BillsScreen()),
+                    ),
+                    child: const Text('See All'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...upcoming.take(3).map((bill) {
+                final daysUntil = bill.daysUntilDue;
+                final isOverdue = bill.isOverdue;
+
+                return Card(
+                  elevation: 0,
+                  margin: const EdgeInsets.only(bottom: 6),
+                  color: theme.colorScheme.surfaceContainerLow,
+                  child: ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: isOverdue
+                          ? Colors.red.withValues(alpha: 30)
+                          : daysUntil <= 3
+                              ? Colors.orange.withValues(alpha: 30)
+                              : theme.colorScheme.primaryContainer,
+                      child: Icon(
+                        isOverdue
+                            ? Icons.warning_amber_rounded
+                            : Icons.receipt_long,
+                        size: 18,
+                        color: isOverdue
+                            ? Colors.red
+                            : daysUntil <= 3
+                                ? Colors.orange
+                                : theme.colorScheme.primary,
+                      ),
+                    ),
+                    title: Text(
+                      bill.title,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    subtitle: Text(
+                      isOverdue
+                          ? '${daysUntil.abs()} days overdue'
+                          : daysUntil == 0
+                              ? 'Due today'
+                              : 'Due in $daysUntil days',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isOverdue ? Colors.red : Colors.grey[600],
+                      ),
+                    ),
+                    trailing: Text(
+                      CurrencyFormatter.formatWithContext(
+                          context, bill.amount),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const BillsScreen()),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBudgetAlertCard(
+    BuildContext context,
+    BudgetAlert alert,
+    FinanceProvider financeProvider,
+  ) {
+    final theme = Theme.of(context);
+
+    Color alertColor;
+    IconData alertIcon;
+    switch (alert.alertType) {
+      case BudgetAlertType.exceeded100:
+        alertColor = theme.colorScheme.error;
+        alertIcon = Icons.warning_amber_rounded;
+        break;
+      case BudgetAlertType.warning75:
+        alertColor = Colors.orange;
+        alertIcon = Icons.info_outline;
+        break;
+      case BudgetAlertType.predictive:
+        alertColor = Colors.deepPurple;
+        alertIcon = Icons.auto_graph;
+        break;
+    }
+
+    return Dismissible(
+      key: Key('alert_${alert.budgetId}_${alert.alertType.name}'),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) {
+        financeProvider.dismissBudgetAlert(alert.budgetId);
+      },
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.close, color: Colors.white),
+      ),
+      child: Card(
+        elevation: 0,
+        margin: const EdgeInsets.only(bottom: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: alertColor.withValues(alpha: 80), width: 1),
+        ),
+        color: alertColor.withValues(alpha: 20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(alertIcon, color: alertColor, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  alert.message,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close, size: 18, color: Colors.grey[500]),
+                onPressed: () {
+                  financeProvider.dismissBudgetAlert(alert.budgetId);
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInsightsSection(
+      BuildContext context, FinanceProvider financeProvider) {
+    final theme = Theme.of(context);
+
+    // Basic insights available to all users
+    final savingsRate = financeProvider.totalIncome > 0
+        ? ((financeProvider.totalIncome - financeProvider.totalExpenses) /
+                financeProvider.totalIncome *
+                100)
+            .toStringAsFixed(1)
+        : '0.0';
+    final topCategory = financeProvider.topExpenseCategory ?? 'N/A';
+
+    return Consumer<SubscriptionProvider>(
+      builder: (context, subProvider, _) {
+        final isPremium = subProvider.isSubscribed;
+
+        // Compute premium insights
+        double? healthScore;
+        String? healthLabel;
+        double? momChange;
+        double? adherenceScore;
+
+        if (isPremium) {
+          healthScore = InsightsService.financialHealthScore(
+            totalIncome: financeProvider.totalIncome,
+            totalExpenses: financeProvider.totalExpenses,
+            budgets: financeProvider.budgets,
+            goals: financeProvider.savingGoals,
+          );
+          healthLabel = InsightsService.healthScoreLabel(healthScore);
+          momChange = InsightsService.monthOverMonthChange(
+              financeProvider.transactions);
+          adherenceScore =
+              InsightsService.budgetAdherenceScore(financeProvider.budgets);
+        }
+
+        return Column(
+          children: [
+            // Row 1: Basic insights (free)
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInsightCard(
+                    context,
+                    icon: Icons.savings_outlined,
+                    title: 'Savings Rate',
+                    value: '$savingsRate%',
+                    color: theme.colorScheme.tertiaryContainer,
+                    iconColor: theme.colorScheme.tertiary,
+                  ),
+                ),
+                const SizedBox(width: 12.0),
+                Expanded(
+                  child: _buildInsightCard(
+                    context,
+                    icon: Icons.trending_up,
+                    title: 'Top Category',
+                    value: topCategory,
+                    color: theme.colorScheme.secondaryContainer,
+                    iconColor: theme.colorScheme.secondary,
+                  ),
+                ),
+              ],
+            ),
+
+            // Premium insights
+            if (isPremium) ...[
+              const SizedBox(height: 12.0),
+
+              // Row 2: Health Score + Month-over-Month
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildHealthScoreInsight(
+                      context,
+                      score: healthScore!,
+                      label: healthLabel!,
+                    ),
+                  ),
+                  const SizedBox(width: 12.0),
+                  Expanded(
+                    child: _buildInsightCard(
+                      context,
+                      icon: momChange != null && momChange < 0
+                          ? Icons.trending_down
+                          : Icons.trending_up,
+                      title: 'vs Last Month',
+                      value: momChange != null
+                          ? '${momChange >= 0 ? '+' : ''}${momChange.toStringAsFixed(1)}%'
+                          : 'No data',
+                      color: momChange != null && momChange < 0
+                          ? Colors.green.shade50
+                          : theme.colorScheme.errorContainer,
+                      iconColor: momChange != null && momChange < 0
+                          ? Colors.green
+                          : theme.colorScheme.error,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12.0),
+
+              // Row 3: Budget Adherence
+              _buildInsightCard(
+                context,
+                icon: Icons.check_circle_outline,
+                title: 'Budget Adherence',
+                value: '${adherenceScore!.toStringAsFixed(0)}%',
+                color: adherenceScore >= 75
+                    ? Colors.green.shade50
+                    : adherenceScore >= 50
+                        ? Colors.orange.shade50
+                        : Colors.red.shade50,
+                iconColor: adherenceScore >= 75
+                    ? Colors.green
+                    : adherenceScore >= 50
+                        ? Colors.orange
+                        : Colors.red,
+              ),
+            ],
+
+            // Free user teaser
+            if (!isPremium) ...[
+              const SizedBox(height: 12.0),
+              _buildPremiumInsightsTeaser(context),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHealthScoreInsight(
+    BuildContext context, {
+    required double score,
+    required String label,
+  }) {
+    final theme = Theme.of(context);
+    final scoreColor = score >= 80
+        ? Colors.green
+        : score >= 60
+            ? Colors.lightGreen
+            : score >= 40
+                ? Colors.orange
+                : Colors.red;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      color: theme.colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    value: score / 100,
+                    strokeWidth: 4,
+                    backgroundColor: scoreColor.withValues(alpha: 40),
+                    valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
+                  ),
+                  Text(
+                    score.toStringAsFixed(0),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: scoreColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Health Score',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: scoreColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumInsightsTeaser(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.primary.withValues(alpha: 80),
+          width: 1,
+        ),
+      ),
+      color: theme.colorScheme.primaryContainer.withValues(alpha: 30),
+      child: InkWell(
+        onTap: () {
+          PremiumFeaturePrompt.showPremiumDialog(
+            context,
+            featureName: 'Deep Insights',
+            description:
+                'Unlock Financial Health Score, spending trends, budget adherence, and savings projections with Premium.',
+            icon: Icons.insights,
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(
+                Icons.lock_outline,
+                color: theme.colorScheme.primary,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Unlock Deep Insights',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Health score, trends & projections',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInsightCard(
     BuildContext context, {
     required IconData icon,
@@ -850,6 +1485,297 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStreakCard(BuildContext context, int streak) {
+    final theme = Theme.of(context);
+
+    String streakEmoji;
+    String streakLabel;
+    if (streak >= 90) {
+      streakEmoji = '🏆';
+      streakLabel = 'Legendary!';
+    } else if (streak >= 30) {
+      streakEmoji = '🔥';
+      streakLabel = 'On fire!';
+    } else if (streak >= 7) {
+      streakEmoji = '⭐';
+      streakLabel = 'Great streak!';
+    } else {
+      streakEmoji = '✨';
+      streakLabel = 'Keep going!';
+    }
+
+    return Card(
+      elevation: 0,
+      color: Colors.orange.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Text(streakEmoji, style: const TextStyle(fontSize: 28)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$streak-day streak',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange.shade800,
+                    ),
+                  ),
+                  Text(
+                    streakLabel,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.orange.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.local_fire_department,
+                color: Colors.orange.shade400, size: 28),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortfolioSection(
+    BuildContext context,
+    FinanceProvider financeProvider,
+  ) {
+    final theme = Theme.of(context);
+
+    return Consumer<SubscriptionProvider>(
+      builder: (context, subProvider, _) {
+        final isPremium = subProvider.isSubscribed;
+
+        // Free users see teaser
+        if (!isPremium) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 24.0),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                    color: theme.colorScheme.primary.withValues(alpha: 60)),
+              ),
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 20),
+              child: InkWell(
+                onTap: () {
+                  PremiumFeaturePrompt.showPremiumDialog(
+                    context,
+                    featureName: 'Investment Tracking',
+                    description:
+                        'Track your investment portfolio, monitor gains & losses, and see allocation breakdowns with Premium.',
+                    icon: Icons.show_chart,
+                  );
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.show_chart,
+                          color: theme.colorScheme.primary, size: 28),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Investment Tracking',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Track your portfolio — upgrade to Premium',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.lock_outline,
+                          size: 18, color: theme.colorScheme.primary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        // Premium users with no investments
+        if (financeProvider.investments.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        // Premium users see portfolio summary
+        final totalValue = financeProvider.portfolioTotalValue;
+        final totalCost = financeProvider.portfolioTotalCost;
+        final gainLoss = totalValue - totalCost;
+        final gainLossPercent =
+            totalCost > 0 ? (gainLoss / totalCost) * 100 : 0.0;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Portfolio',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const InvestmentsScreen()),
+                    ),
+                    child: const Text('See All'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Card(
+                elevation: 0,
+                color: theme.colorScheme.surfaceContainerLow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.show_chart,
+                          color: theme.colorScheme.primary, size: 32),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              CurrencyFormatter.formatWithContext(
+                                  context, totalValue),
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                Icon(
+                                  gainLoss >= 0
+                                      ? Icons.trending_up
+                                      : Icons.trending_down,
+                                  size: 16,
+                                  color: gainLoss >= 0
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${gainLoss >= 0 ? '+' : ''}${gainLossPercent.toStringAsFixed(1)}%',
+                                  style: TextStyle(
+                                    color: gainLoss >= 0
+                                        ? Colors.green
+                                        : Colors.red,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '${financeProvider.investments.length} holdings',
+                        style: TextStyle(
+                          color: Colors.grey[500],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMonthlySnapshotCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+
+    // Show snapshot card in the first 7 days of the month
+    if (now.day > 7) return const SizedBox.shrink();
+
+    final lastMonth = DateTime(now.year, now.month - 1);
+    final monthLabel = DateFormat('MMMM').format(lastMonth);
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.tertiaryContainer.withValues(alpha: 60),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (context) => const MonthlySnapshotScreen()),
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_month,
+                  color: theme.colorScheme.tertiary, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$monthLabel Snapshot Ready',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'View your monthly financial summary',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios,
+                  size: 16, color: theme.colorScheme.tertiary),
+            ],
+          ),
         ),
       ),
     );

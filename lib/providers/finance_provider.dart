@@ -1,12 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wealth_wise/models/saving_goal.dart';
+import 'package:wealth_wise/models/budget_model.dart';
 import 'package:wealth_wise/models/transaction.dart' as app_model;
 import 'package:wealth_wise/services/database_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:logging/logging.dart';
 import 'package:wealth_wise/models/category.dart' as app_category;
 import 'package:wealth_wise/controllers/feature_access_controller.dart';
+import 'package:wealth_wise/models/budget_alert.dart';
+import 'package:wealth_wise/models/bill_reminder.dart';
+import 'package:wealth_wise/models/investment.dart';
+import 'package:wealth_wise/models/achievement.dart';
+import 'package:wealth_wise/services/gamification_service.dart';
+import 'package:wealth_wise/utils/currency_formatter.dart';
 import '../utils/migration_helpers.dart';
 
 enum TimeFrame { day, week, month, year, all }
@@ -71,15 +78,45 @@ class FinanceProvider with ChangeNotifier {
   // Data
   List<app_model.Transaction> _transactions = [];
   List<SavingGoal> _savingGoals = [];
+  List<Budget> _budgets = [];
   List<app_category.Category> _categories = [];
   final Map<String, dynamic> _financialSummary = {};
+  List<BudgetAlert> _budgetAlerts = [];
+  List<BillReminder> _billReminders = [];
+  List<Investment> _investments = [];
+  int _currentStreak = 0;
+  List<Achievement> _achievements = [];
 
   // Getters
   bool get isLoading => _isLoading;
   String? get error => _error;
   TimeFrame get selectedTimeframe => _selectedTimeframe;
+  List<BudgetAlert> get budgetAlerts => _budgetAlerts;
+  List<BillReminder> get billReminders => _billReminders;
+  List<Investment> get investments => _investments;
+  int get currentStreak => _currentStreak;
+  List<Achievement> get achievements => _achievements;
+
+  // Portfolio getters
+  double get portfolioTotalValue =>
+      _investments.fold(0, (sum, inv) => sum + inv.totalValue);
+  double get portfolioTotalCost =>
+      _investments.fold(0, (sum, inv) => sum + inv.totalCost);
+
+  /// Bills that are upcoming (due within 7 days) or overdue, sorted by due date.
+  List<BillReminder> get upcomingBills {
+    final now = DateTime.now();
+    final weekFromNow = now.add(const Duration(days: 7));
+    return _billReminders
+        .where((b) =>
+            !b.isPaid &&
+            b.dueDate.isBefore(weekFromNow))
+        .toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+  }
   List<app_model.Transaction> get transactions => _transactions;
   List<SavingGoal> get savingGoals => _savingGoals;
+  List<Budget> get budgets => _budgets;
   List<app_category.Category> get categories => _categories;
   Map<String, dynamic> get financialSummary => _financialSummary;
 
@@ -232,6 +269,13 @@ class FinanceProvider with ChangeNotifier {
       await fetchTransactions();
       await fetchSpendingCategories();
       await fetchSavingGoals();
+      await fetchBudgets();
+      await fetchBillReminders();
+      await fetchInvestments();
+      await processRecurringTransactions();
+      final isPremium = await _checkPremiumStatus();
+      checkBudgetAlerts(isPremium: isPremium);
+      await _loadAndCheckGamification(isPremium);
       notifyListeners();
     } catch (e) {
       // Log error but don't crash
@@ -618,13 +662,13 @@ class FinanceProvider with ChangeNotifier {
 
       // CASE 5: No relevant goal changes
       else {
-        _logger.severe('CASE 5: No relevant goal changes detected');
-        _logger.severe('Old transaction type: ${oldTransaction.type}');
-        _logger.severe('New transaction type: ${newTransaction.type}');
-        _logger.severe('Old goal ID: $oldGoalId');
-        _logger.severe('New goal ID: $newGoalId');
-        _logger.severe('Old amount: ${oldTransaction.amount}');
-        _logger.severe('New amount: ${newTransaction.amount}');
+        _logger.fine('CASE 5: No relevant goal changes detected');
+        _logger.fine('Old transaction type: ${oldTransaction.type}');
+        _logger.fine('New transaction type: ${newTransaction.type}');
+        _logger.fine('Old goal ID: $oldGoalId');
+        _logger.fine('New goal ID: $newGoalId');
+        _logger.fine('Old amount: ${oldTransaction.amount}');
+        _logger.fine('New amount: ${newTransaction.amount}');
         return result;
       }
 
@@ -696,17 +740,17 @@ class FinanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      _logger.severe('Adding transaction with goal handling');
-      _logger.severe('Transaction goal ID: ${transaction.goalId}');
-      _logger.severe('Provided goal ID: ${savingGoal?.id}');
-      _logger.severe(
+      _logger.fine('Adding transaction with goal handling');
+      _logger.fine('Transaction goal ID: ${transaction.goalId}');
+      _logger.fine('Provided goal ID: ${savingGoal?.id}');
+      _logger.fine(
           'Contribution percentage: ${transaction.contributionPercentage}%');
 
       // Verify the goal IDs match
       if (savingGoal != null &&
           transaction.goalId != null &&
           transaction.goalId != savingGoal.id) {
-        _logger.severe(
+        _logger.fine(
             'ERROR: Transaction goal ID and provided goal ID do not match!');
         _error = 'Transaction goal ID and provided goal ID do not match';
         _isLoading = false;
@@ -722,7 +766,7 @@ class FinanceProvider with ChangeNotifier {
           transaction.type == app_model.TransactionType.income &&
           transaction.goalId != null &&
           transaction.goalId!.isNotEmpty) {
-        _logger.severe(
+        _logger.fine(
             'Transaction added, now updating goal: ${savingGoal.id} (${savingGoal.title})');
 
         // Add contribution to goal - use the actual goal object to ensure we're updating the right one
@@ -761,21 +805,21 @@ class FinanceProvider with ChangeNotifier {
           transaction.goalId != null &&
           transaction.goalId!.isNotEmpty) {
         // Get the goal by ID
-        _logger.severe('Transaction has goal ID: ${transaction.goalId}');
+        _logger.fine('Transaction has goal ID: ${transaction.goalId}');
         final goal = await getSavingGoalById(transaction.goalId!);
 
         if (goal != null) {
           _logger
-              .severe('Found goal for transaction: ${goal.title} (${goal.id})');
+              .fine('Found goal for transaction: ${goal.title} (${goal.id})');
           return addTransactionWithGoal(transaction, goal);
         } else {
-          _logger.severe('ERROR: Goal not found for ID: ${transaction.goalId}');
+          _logger.warning('ERROR: Goal not found for ID: ${transaction.goalId}');
           _error = 'Goal not found with ID: ${transaction.goalId}';
           notifyListeners();
           return false;
         }
       } else {
-        _logger.severe('Transaction has no goal ID or is not income type');
+        _logger.fine('Transaction has no goal ID or is not income type');
       }
 
       // Fallback to simple transaction without goal
@@ -785,6 +829,7 @@ class FinanceProvider with ChangeNotifier {
 
       await _databaseService.addTransaction(transaction);
       await fetchTransactions();
+      checkBudgetAlerts();
       _isLoading = false;
       notifyListeners();
       return true;
@@ -1138,7 +1183,7 @@ class FinanceProvider with ChangeNotifier {
       return true;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error adding saving goal: $_error');
+      _logger.fine('Error adding saving goal: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1172,7 +1217,7 @@ class FinanceProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error updating saving goal: $_error');
+      _logger.fine('Error updating saving goal: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1193,11 +1238,21 @@ class FinanceProvider with ChangeNotifier {
         return false;
       }
 
+      // Clear goalId from linked transactions before deleting
+      final linkedTransactions =
+          _transactions.where((t) => t.goalId == goal.id).toList();
+      for (final t in linkedTransactions) {
+        final updated = t.copyWith(goalId: '');
+        await _databaseService.updateTransaction(updated);
+      }
+
       final success = await _databaseService.deleteSavingGoal(goal.id!);
 
       if (success) {
         // Remove the goal from the list
         _savingGoals.removeWhere((g) => g.id == goal.id);
+        // Refresh transactions to reflect cleared goalId references
+        await fetchTransactions();
 
         _isLoading = false;
         notifyListeners();
@@ -1210,7 +1265,99 @@ class FinanceProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error deleting saving goal: $_error');
+      _logger.fine('Error deleting saving goal: $_error');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Load budgets
+  Future<void> fetchBudgets() async {
+    if (_userId == null || _userId!.isEmpty) {
+      return;
+    }
+
+    try {
+      _budgets = await _databaseService.getBudgets(_userId!);
+      notifyListeners();
+    } catch (e) {
+      _logger.warning('Error fetching budgets: $e');
+      _budgets = [];
+    }
+  }
+
+  // Add a budget
+  Future<bool> addBudget(Budget budget) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final newBudget = await _databaseService.createBudget(
+        budget.userId,
+        budget.category,
+        budget.amount,
+        budget.startDate,
+        budget.endDate,
+      );
+
+      _budgets.add(newBudget);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _logger.fine('Error adding budget: $_error');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Update a budget
+  Future<bool> updateBudget(Budget budget) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _databaseService.updateBudget(budget);
+
+      // Replace the old budget in the list
+      final index = _budgets.indexWhere((b) => b.id == budget.id);
+      if (index >= 0) {
+        _budgets[index] = budget;
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _logger.fine('Error updating budget: $_error');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Delete a budget
+  Future<bool> deleteBudget(Budget budget) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _databaseService.deleteBudget(budget.id);
+
+      _budgets.removeWhere((b) => b.id == budget.id);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _logger.fine('Error deleting budget: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1224,16 +1371,18 @@ class FinanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Create a transaction for the contribution
+      // Create a transaction for the contribution (income type so
+      // contributesToGoal is recognized by the Transaction model)
       final transaction = app_model.Transaction(
         userId: goal.userId,
         title: 'Contribution to ${goal.title}',
         amount: amount,
         date: DateTime.now(),
-        type: app_model.TransactionType.expense,
+        type: app_model.TransactionType.income,
         category: 'Savings',
         note: 'Contribution to saving goal',
         goalId: goal.id,
+        contributionPercentage: 100.0,
       );
 
       // Add the transaction
@@ -1263,7 +1412,7 @@ class FinanceProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error contributing to saving goal: $_error');
+      _logger.fine('Error contributing to saving goal: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1343,7 +1492,7 @@ class FinanceProvider with ChangeNotifier {
       return true;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error adding category: $_error');
+      _logger.fine('Error adding category: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1377,7 +1526,7 @@ class FinanceProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error updating category: $_error');
+      _logger.fine('Error updating category: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1415,7 +1564,7 @@ class FinanceProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _error = e.toString();
-      debugPrint('Error deleting category: $_error');
+      _logger.fine('Error deleting category: $_error');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1430,6 +1579,7 @@ class FinanceProvider with ChangeNotifier {
     try {
       await fetchTransactions();
       await fetchSavingGoals();
+      await fetchBudgets();
       await fetchSpendingCategories();
     } catch (e) {
       _logger.warning('Error loading financial summary: $e');
@@ -1451,7 +1601,7 @@ class FinanceProvider with ChangeNotifier {
       await fetchSavingGoals();
       notifyListeners();
     } catch (e) {
-      debugPrint('Error updating financial summary: $e');
+      _logger.fine('Error updating financial summary: $e');
     }
   }
 
@@ -1495,28 +1645,28 @@ class FinanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      _logger.severe(
+      _logger.fine(
           '===== WARNING: contributeIncomeToSavingGoal CALLED DIRECTLY =====');
-      _logger.severe(
+      _logger.fine(
           'CRITICAL: contributeIncomeToSavingGoal called for goal: ${goal.id}, amount: $amount');
-      _logger.severe(
+      _logger.fine(
           'GOAL INFO: ${goal.title}, Current amount: ${goal.currentAmount}, Target: ${goal.targetAmount}');
-      _logger.severe('Skip if from update flag: $skipIfFromUpdate');
-      _logger.severe('_isInTransactionUpdate flag: $_isInTransactionUpdate');
+      _logger.fine('Skip if from update flag: $skipIfFromUpdate');
+      _logger.fine('_isInTransactionUpdate flag: $_isInTransactionUpdate');
 
       // Log stack trace to help debug where this is being called from
-      _logger.severe('Call stack:');
+      _logger.fine('Call stack:');
       try {
         throw Exception('Stack trace');
       } catch (e, stackTrace) {
-        _logger.severe(stackTrace.toString());
+        _logger.fine(stackTrace.toString());
       }
-      _logger.severe(
+      _logger.fine(
           '===========================================================');
 
       // Safety check - never contribute to goals from transaction updates
       if (skipIfFromUpdate || _isInTransactionUpdate) {
-        _logger.severe(
+        _logger.fine(
             'CRITICAL: Skipping contribution since it came from an update or during transaction update');
         _isLoading = false;
         notifyListeners();
@@ -1535,14 +1685,14 @@ class FinanceProvider with ChangeNotifier {
 
       // Update the goal with the new amount
       final newAmount = existingGoal.currentAmount + amount;
-      _logger.severe(
+      _logger.fine(
           'CONTRIBUTING: ${existingGoal.currentAmount} + $amount = $newAmount');
 
       final updatedGoal = existingGoal.copyWith(currentAmount: newAmount);
       final success = await _databaseService.updateSavingGoal(updatedGoal);
 
       if (success) {
-        _logger.severe(
+        _logger.fine(
             'CONTRIBUTION SUCCESSFUL: Goal ${goal.title} updated with new amount: $newAmount');
 
         // Update local state
@@ -1567,6 +1717,401 @@ class FinanceProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return false;
+    }
+  }
+
+  // ─── Budget Alerts ──────────────────────────────────────────────────
+
+  /// Check all budgets and generate alerts for those at or near their limits.
+  /// Called after every transaction add/update/delete and on init.
+  /// Pass `isPremium: true` to include predictive alerts.
+  void checkBudgetAlerts({bool isPremium = false}) {
+    final alerts = <BudgetAlert>[];
+
+    for (final budget in _budgets) {
+      final percent = budget.percentUsed;
+
+      if (percent >= 100) {
+        alerts.add(BudgetAlert(
+          budgetId: budget.id,
+          category: budget.category,
+          percentUsed: percent,
+          alertType: BudgetAlertType.exceeded100,
+          message:
+              'You\'ve exceeded your ${budget.category} budget by ${CurrencyFormatter.format(budget.spent - budget.amount)}',
+        ));
+      } else if (percent >= 75) {
+        alerts.add(BudgetAlert(
+          budgetId: budget.id,
+          category: budget.category,
+          percentUsed: percent,
+          alertType: BudgetAlertType.warning75,
+          message:
+              '${budget.category} budget is ${percent.toStringAsFixed(0)}% used — ${CurrencyFormatter.format(budget.remainingAmount)} remaining',
+        ));
+      }
+
+      // Premium predictive alert: project if spending pace will exceed budget
+      if (isPremium && percent < 100 && percent > 0) {
+        final now = DateTime.now();
+        final daysElapsed =
+            now.difference(budget.startDate).inDays.clamp(1, 999);
+        final totalDays =
+            budget.endDate.difference(budget.startDate).inDays.clamp(1, 999);
+        final dailyRate = budget.spent / daysElapsed;
+        final projectedTotal = dailyRate * totalDays;
+
+        if (projectedTotal > budget.amount) {
+          final overage = projectedTotal - budget.amount;
+          alerts.add(BudgetAlert(
+            budgetId: budget.id,
+            category: budget.category,
+            percentUsed: percent,
+            alertType: BudgetAlertType.predictive,
+            message:
+                'At current pace, you\'ll exceed ${budget.category} by ${CurrencyFormatter.format(overage)}',
+            predictedOverage: overage,
+          ));
+        }
+      }
+    }
+
+    _budgetAlerts = alerts;
+    // Don't call notifyListeners here — caller is responsible
+  }
+
+  /// Dismiss a budget alert by its budgetId (removes from in-memory list).
+  void dismissBudgetAlert(String budgetId) {
+    _budgetAlerts.removeWhere((a) => a.budgetId == budgetId);
+    notifyListeners();
+  }
+
+  // ─── Recurring Transactions ─────────────────────────────────────────
+
+  /// Get all recurring transaction templates (not generated children).
+  List<app_model.Transaction> get recurringTransactions {
+    return _transactions
+        .where((t) => t.isRecurring && t.parentTransactionId == null)
+        .toList();
+  }
+
+  /// Process recurring transactions: create any entries that are due up to today.
+  /// Called on app init. Finds the latest child for each recurring template,
+  /// then generates entries from there up to today.
+  Future<void> processRecurringTransactions() async {
+    if (_userId == null || _userId!.isEmpty) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final templates = _transactions
+        .where(
+            (t) => t.isRecurring && t.parentTransactionId == null && !t.isPaused)
+        .toList();
+
+    if (templates.isEmpty) return;
+
+    bool createdAny = false;
+
+    for (final template in templates) {
+      // Skip if recurrence has ended
+      if (template.recurrenceEndDate != null &&
+          template.recurrenceEndDate!.isBefore(today)) {
+        continue;
+      }
+
+      // Find the most recent child transaction for this template
+      DateTime lastDate = template.date;
+      for (final t in _transactions) {
+        if (t.parentTransactionId == template.id &&
+            t.date.isAfter(lastDate)) {
+          lastDate = t.date;
+        }
+      }
+
+      // Generate entries from lastDate up to today
+      DateTime? nextDate = template.nextOccurrenceAfter(lastDate);
+      while (nextDate != null && !nextDate.isAfter(today)) {
+        final newEntry = app_model.Transaction(
+          userId: template.userId,
+          title: template.title,
+          amount: template.amount,
+          date: nextDate,
+          type: template.type,
+          category: template.category,
+          note: template.note,
+          parentTransactionId: template.id,
+          isRecurring: false, // Children are not templates
+        );
+
+        try {
+          await _databaseService.addTransaction(newEntry);
+          createdAny = true;
+        } catch (e) {
+          _logger.warning('Error creating recurring entry: $e');
+        }
+
+        nextDate = template.nextOccurrenceAfter(nextDate);
+      }
+    }
+
+    if (createdAny) {
+      await fetchTransactions();
+    }
+  }
+
+  /// Toggle pause/resume on a recurring transaction template.
+  Future<bool> toggleRecurringPause(String transactionId) async {
+    try {
+      final idx = _transactions.indexWhere((t) => t.id == transactionId);
+      if (idx == -1) return false;
+
+      final template = _transactions[idx];
+      if (!template.isRecurring || template.parentTransactionId != null) {
+        return false;
+      }
+
+      final updated = template.copyWith(isPaused: !template.isPaused);
+      final success = await _databaseService.updateTransaction(updated);
+      if (success) {
+        _transactions[idx] = updated;
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error toggling recurring pause: $e');
+      return false;
+    }
+  }
+
+  /// Stop a recurring transaction (remove recurrence, keep history).
+  Future<bool> stopRecurring(String transactionId) async {
+    try {
+      final idx = _transactions.indexWhere((t) => t.id == transactionId);
+      if (idx == -1) return false;
+
+      final template = _transactions[idx];
+      final updated = template.copyWith(isRecurring: false);
+      final success = await _databaseService.updateTransaction(updated);
+      if (success) {
+        _transactions[idx] = updated;
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error stopping recurring: $e');
+      return false;
+    }
+  }
+
+  // ─── Bill Reminders ─────────────────────────────────────────────────
+
+  Future<void> fetchBillReminders() async {
+    if (_userId == null || _userId!.isEmpty) return;
+    try {
+      _billReminders = await _databaseService.getBillReminders(_userId!);
+    } catch (e) {
+      _logger.warning('Error fetching bill reminders: $e');
+    }
+  }
+
+  Future<bool> addBillReminder(BillReminder bill) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _databaseService.addBillReminder(bill);
+      await fetchBillReminders();
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _logger.warning('Error adding bill reminder: $e');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateBillReminder(BillReminder bill) async {
+    try {
+      final success = await _databaseService.updateBillReminder(bill);
+      if (success) {
+        await fetchBillReminders();
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error updating bill reminder: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteBillReminder(String billId) async {
+    try {
+      final success = await _databaseService.deleteBillReminder(billId);
+      if (success) {
+        _billReminders.removeWhere((b) => b.id == billId);
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error deleting bill reminder: $e');
+      return false;
+    }
+  }
+
+  /// Mark a bill as paid and optionally create an expense transaction.
+  Future<bool> markBillPaid(BillReminder bill,
+      {bool createTransaction = false}) async {
+    try {
+      // Mark current as paid
+      final updated = bill.copyWith(isPaid: true);
+      final success = await _databaseService.updateBillReminder(updated);
+      if (!success) return false;
+
+      // Create expense transaction if requested
+      if (createTransaction && _userId != null) {
+        final transaction = app_model.Transaction(
+          userId: _userId!,
+          title: bill.title,
+          amount: bill.amount,
+          date: DateTime.now(),
+          type: app_model.TransactionType.expense,
+          category: bill.category,
+          note: 'Bill payment',
+        );
+        await addTransaction(transaction);
+      }
+
+      // Create next occurrence
+      final nextDue = bill.recurrence.nextDueAfter(bill.dueDate);
+      final nextBill = bill.copyWith(
+        id: null,
+        dueDate: nextDue,
+        isPaid: false,
+      );
+      await _databaseService.addBillReminder(nextBill);
+
+      await fetchBillReminders();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _logger.warning('Error marking bill paid: $e');
+      return false;
+    }
+  }
+
+  // ─── Investments ──────────────────────────────────────────────────
+
+  Future<void> fetchInvestments() async {
+    if (_userId == null || _userId!.isEmpty) return;
+    try {
+      _investments = await _databaseService.getInvestments(_userId!);
+    } catch (e) {
+      _logger.warning('Error fetching investments: $e');
+    }
+  }
+
+  Future<bool> addInvestment(Investment investment) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _databaseService.addInvestment(investment);
+      await fetchInvestments();
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _logger.warning('Error adding investment: $e');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateInvestment(Investment investment) async {
+    try {
+      final success = await _databaseService.updateInvestment(investment);
+      if (success) {
+        await fetchInvestments();
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error updating investment: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteInvestment(String investmentId) async {
+    try {
+      final success = await _databaseService.deleteInvestment(investmentId);
+      if (success) {
+        _investments.removeWhere((i) => i.id == investmentId);
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.warning('Error deleting investment: $e');
+      return false;
+    }
+  }
+
+  // ─── Gamification ─────────────────────────────────────────────────
+
+  /// Load streak and achievements from user document, then check for new ones.
+  Future<void> _loadAndCheckGamification(bool isPremium) async {
+    if (_userId == null || _userId!.isEmpty) return;
+
+    try {
+      // Calculate streak from transactions
+      _currentStreak = GamificationService.calculateStreak(_transactions);
+
+      // Load unlocked achievement IDs from user document
+      final savedAchievements = await _databaseService.getUserFieldData(
+          _userId!, 'unlockedAchievements');
+      final Set<String> unlockedIds = {};
+      if (savedAchievements is List) {
+        for (final id in savedAchievements) {
+          unlockedIds.add(id.toString());
+        }
+      }
+
+      // Check for newly unlocked achievements
+      final newlyUnlocked = GamificationService.checkAchievements(
+        transactions: _transactions,
+        budgets: _budgets,
+        goals: _savingGoals,
+        streak: _currentStreak,
+        alreadyUnlocked: unlockedIds,
+      );
+
+      // Add newly unlocked
+      unlockedIds.addAll(newlyUnlocked);
+
+      // Build achievement list
+      _achievements = GamificationService.allAchievements.map((template) {
+        // Filter premium achievements for free users
+        if (template.isPremium && !isPremium) {
+          return template;
+        }
+        return template.copyWith(
+          isUnlocked: unlockedIds.contains(template.id),
+          unlockedAt: unlockedIds.contains(template.id) ? DateTime.now() : null,
+        );
+      }).toList();
+
+      // Save streak and achievements to user document
+      await _databaseService.updateUserField(
+          _userId!, 'currentStreak', _currentStreak);
+      await _databaseService.updateUserField(
+          _userId!, 'unlockedAchievements', unlockedIds.toList());
+    } catch (e) {
+      _logger.warning('Error loading gamification data: $e');
     }
   }
 }

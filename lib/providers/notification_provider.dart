@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationProvider extends ChangeNotifier {
+  final _logger = Logger('NotificationProvider');
   static const String _notificationsEnabledKey = 'notifications_enabled';
   static const String _notificationTimeHourKey = 'notification_time_hour';
   static const String _notificationTimeMinuteKey = 'notification_time_minute';
@@ -39,7 +41,7 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
 
     // In a real implementation, we would schedule or cancel notifications here
-    debugPrint('Notifications ${enabled ? 'enabled' : 'disabled'}');
+    _logger.fine('Notifications ${enabled ? 'enabled' : 'disabled'}');
   }
 
   Future<void> setReminderTime(TimeOfDay time) async {
@@ -50,7 +52,7 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
 
     // In a real implementation, we would reschedule notifications here
-    debugPrint('Reminder time set to ${time.hour}:${time.minute}');
+    _logger.fine('Reminder time set to ${time.hour}:${time.minute}');
   }
 
   // For demonstration purposes - would show a real notification in production
@@ -62,11 +64,11 @@ class NotificationProvider extends ChangeNotifier {
     if (!_notificationsEnabled) return;
 
     // Just log the notification for demo purposes
-    debugPrint('NOTIFICATION:');
-    debugPrint('ID: $id');
-    debugPrint('Title: $title');
-    debugPrint('Body: $body');
-    debugPrint('Time: ${DateTime.now()}');
+    _logger.fine('NOTIFICATION:');
+    _logger.fine('ID: $id');
+    _logger.fine('Title: $title');
+    _logger.fine('Body: $body');
+    _logger.fine('Time: ${DateTime.now()}');
   }
 
   // For demonstration purposes - would schedule a daily reminder in production
@@ -74,7 +76,7 @@ class NotificationProvider extends ChangeNotifier {
     if (!_notificationsEnabled) return;
 
     setReminderTime(time);
-    debugPrint(
+    _logger.fine(
         'Daily expense reminder scheduled for ${time.hour}:${time.minute}');
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:wealth_wise/services/billing_service.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:provider/provider.dart';
+import 'package:wealth_wise/constants/subscription_constants.dart';
 import 'package:wealth_wise/providers/subscription_provider.dart';
 
 class SubscriptionScreen extends StatefulWidget {
@@ -28,8 +28,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       _initializing = true;
     });
 
-    final billingService = Provider.of<BillingService>(context, listen: false);
-    await billingService.initialize();
+    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
+    await provider.initialize();
 
     if (mounted) {
       setState(() {
@@ -46,9 +46,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         title: const Text('Subscription Management'),
         backgroundColor: theme.colorScheme.surface,
       ),
-      body: Consumer<BillingService>(
-        builder: (context, billingService, _) {
-          if (_initializing || billingService.isLoading) {
+      body: Consumer<SubscriptionProvider>(
+        builder: (context, provider, _) {
+          if (_initializing || provider.isLoading) {
             return const Center(
               child: CircularProgressIndicator(),
             );
@@ -72,10 +72,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       Row(
                         children: [
                           Icon(
-                            billingService.isSubscribed
+                            provider.isSubscribed
                                 ? Icons.verified
                                 : Icons.info_outline,
-                            color: billingService.isSubscribed
+                            color: provider.isSubscribed
                                 ? Colors.green
                                 : Colors.orange,
                             size: 24,
@@ -91,20 +91,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        billingService.isSubscribed ? 'Premium' : 'Free',
+                        provider.isSubscribed ? 'Premium' : 'Free',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: billingService.isSubscribed
+                          color: provider.isSubscribed
                               ? Colors.green
                               : Colors.grey[700],
                         ),
                       ),
-                      if (billingService.isSubscribed &&
-                          billingService.subscriptionEndDate != null)
+                      if (provider.isSubscribed &&
+                          provider.subscriptionEndDate != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Text(
-                            'Valid until: ${_formatDate(billingService.subscriptionEndDate!)}',
+                            'Valid until: ${_formatDate(provider.subscriptionEndDate!)}',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontWeight: FontWeight.w500,
@@ -112,7 +112,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      if (billingService.isSubscribed)
+                      if (provider.isSubscribed)
                         OutlinedButton.icon(
                           icon: const Icon(Icons.cancel_outlined,
                               color: Colors.red),
@@ -136,7 +136,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
 
               // Subscription options section (only shown if not subscribed)
-              if (!billingService.isSubscribed) ...[
+              if (!provider.isSubscribed) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16.0),
                   child: Text(
@@ -162,7 +162,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     'Ad-supported',
                   ],
                   Colors.grey,
-                  billingService.isSubscribed,
+                  provider.isSubscribed,
                 ),
 
                 const SizedBox(height: 16),
@@ -171,7 +171,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   context,
                   1,
                   'Monthly Premium',
-                  _getProductPrice(billingService.products, 'monthly'),
+                  _getProductPrice(provider, SubscriptionConstants.monthlyProductId),
                   'Full access billed monthly',
                   [
                     'Unlimited transactions',
@@ -179,11 +179,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     'Advanced financial reports',
                     'Multiple savings goals',
                     'Ad-free experience',
-                    'Cloud backup',
+                    'Sync across devices',
                     'Priority support',
                   ],
                   Colors.blue,
-                  billingService.isSubscribed,
+                  provider.isSubscribed,
                 ),
 
                 const SizedBox(height: 16),
@@ -192,8 +192,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   context,
                   2,
                   'Annual Premium',
-                  _getProductPrice(billingService.products, 'annual'),
-                  'Save 58% compared to monthly',
+                  _getProductPrice(provider, SubscriptionConstants.annualProductId),
+                  'Save ${SubscriptionConstants.annualDiscountLabel} compared to monthly',
                   [
                     'All Monthly Premium features',
                     'Best value option',
@@ -202,7 +202,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     'Premium budgeting tools',
                   ],
                   Colors.indigo,
-                  billingService.isSubscribed,
+                  provider.isSubscribed,
                 ),
 
                 const SizedBox(height: 24),
@@ -211,8 +211,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ElevatedButton(
                   onPressed: _selectedPlanIndex == 0
                       ? null
-                      : () =>
-                          _handleSubscriptionPurchase(context, billingService),
+                      : () => _handleSubscriptionPurchase(context, provider),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     backgroundColor: theme.colorScheme.primary,
@@ -228,6 +227,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         : 'Subscribe to ${_selectedPlanIndex == 1 ? "Monthly" : "Annual"} Premium',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Restore Purchases button
+                Center(
+                  child: TextButton(
+                    onPressed: () => _handleRestorePurchases(context, provider),
+                    child: Text(
+                      'Restore Purchases',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
@@ -373,33 +388,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  String _getProductPrice(List<ProductDetails> products, String type) {
-    if (products.isEmpty) {
-      return type == 'monthly' ? '3.99' : '19.99';
+  String _getProductPrice(SubscriptionProvider provider, String productId) {
+    try {
+      return provider.products.firstWhere((p) => p.id == productId).price;
+    } catch (_) {
+      return productId.contains('annual')
+          ? SubscriptionConstants.annualFallbackPriceDisplay
+          : SubscriptionConstants.monthlyFallbackPriceDisplay;
     }
-
-    final product = products.firstWhere(
-      (p) => p.id.contains(type),
-      orElse: () => type == 'monthly'
-          ? ProductDetails(
-              id: 'wealthwise_monthly',
-              title: 'Monthly Premium',
-              description: 'Unlimited access for one month',
-              price: '3.99',
-              rawPrice: 3.99,
-              currencyCode: 'USD',
-            )
-          : ProductDetails(
-              id: 'wealthwise_annual',
-              title: 'Annual Premium',
-              description: 'Unlimited access for one year (58% discount)',
-              price: '19.99',
-              rawPrice: 19.99,
-              currencyCode: 'USD',
-            ),
-    );
-
-    return product.price;
   }
 
   String _formatDate(DateTime date) {
@@ -407,7 +403,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   void _showCancelDialog(BuildContext context) {
-    final billingService = Provider.of<BillingService>(context, listen: false);
+    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     showDialog(
@@ -421,7 +417,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             Text('Are you sure you want to cancel your subscription?'),
             SizedBox(height: 16),
             Text(
-              'You\'ll continue to have access until the end of your current billing period.',
+              'You will be redirected to your device\'s subscription management page to cancel.',
               style: TextStyle(fontStyle: FontStyle.italic),
             ),
           ],
@@ -438,28 +434,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             onPressed: () async {
               Navigator.pop(dialogContext);
 
-              // Cancel the subscription
-              final success = await billingService.cancelSubscription();
-
-              // Show result message
-              if (mounted) {
-                if (success) {
+              // Open platform subscription management (Play Store / App Store)
+              try {
+                await provider.openSubscriptionManagement();
+              } catch (e) {
+                if (mounted) {
                   scaffoldMessenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('Your subscription has been cancelled'),
-                    ),
-                  );
-                } else {
-                  scaffoldMessenger.showSnackBar(
-                    const SnackBar(
+                    SnackBar(
                       content: Text(
-                          'Failed to cancel subscription. Please try again later.'),
+                          'Could not open subscription management: $e'),
                     ),
                   );
                 }
               }
             },
-            child: const Text('Cancel Subscription'),
+            child: const Text('Manage Subscription'),
           ),
         ],
       ),
@@ -467,69 +456,83 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   void _handleSubscriptionPurchase(
-      BuildContext context, BillingService billingService) async {
+      BuildContext context, SubscriptionProvider provider) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final provider = Provider.of<SubscriptionProvider>(context, listen: false);
 
-    // Show loading indicator
+    // Determine which product ID to purchase
+    final productId = _selectedPlanIndex == 2
+        ? SubscriptionConstants.annualProductId
+        : SubscriptionConstants.monthlyProductId;
+
+    // Find the matching ProductDetails from the store
+    final product = provider.products.cast<ProductDetails?>().firstWhere(
+          (p) => p!.id == productId,
+          orElse: () => null,
+        );
+
+    if (product == null) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Product not available. Please try again later.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     scaffoldMessenger.showSnackBar(
       const SnackBar(
-        content: Text('Processing your subscription...'),
+        content: Text('Opening store...'),
         duration: Duration(seconds: 2),
       ),
     );
 
     try {
-      // Get the appropriate mock plan ID based on selection
-      String planId =
-          _selectedPlanIndex == 2 ? 'wealthwise_annual' : 'wealthwise_monthly';
-
-      // Call the mock purchase process
-      final success = await billingService.processPurchase(planId);
-
-      if (success) {
-        // Also update the provider's subscription status for UI updates
-        await provider.setSubscriptionStatus(
-            true,
-            _selectedPlanIndex == 2
-                ? DateTime.now().add(const Duration(days: 365))
-                : DateTime.now().add(const Duration(days: 30)));
-
-        // Reload provider and billing service state to update UI globally
-        await provider.initialize();
-        await billingService.initialize();
-
-        // Force UI refresh
-        setState(() {});
-
-        // Subscription was successful - show success
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Subscription successful!'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        // Show error message
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text(
-                  'Failed to process your subscription. Please try again.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
+      // Initiate real IAP purchase — result delivered via purchase stream
+      await provider.buySubscription(product);
     } catch (e) {
-      // Handle exceptions
       if (mounted) {
         scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text('An error occurred: $e'),
+            content: Text('Purchase failed: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleRestorePurchases(
+      BuildContext context, SubscriptionProvider provider) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(
+        content: Text('Restoring purchases...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      await provider.restorePurchases();
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              provider.isSubscribed
+                  ? 'Subscription restored successfully!'
+                  : 'No previous subscription found.',
+            ),
+            backgroundColor: provider.isSubscribed ? Colors.green : null,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Restore failed: $e'),
             duration: const Duration(seconds: 3),
           ),
         );

@@ -5,14 +5,50 @@ import 'package:wealth_wise/providers/finance_provider.dart';
 import 'package:wealth_wise/screens/savings/create_saving_goal_screen.dart';
 import 'package:wealth_wise/widgets/custom_action_button.dart';
 import 'package:wealth_wise/utils/currency_formatter.dart';
+import 'package:wealth_wise/utils/ui_helpers.dart';
 
-class SavingsScreen extends StatelessWidget {
+enum _SortType { none, alphabetical, progressAsc, progressDesc, targetDate }
+
+class SavingsScreen extends StatefulWidget {
   const SavingsScreen({super.key});
+
+  @override
+  State<SavingsScreen> createState() => _SavingsScreenState();
+}
+
+class _SavingsScreenState extends State<SavingsScreen> {
+  _SortType _sortType = _SortType.none;
+
+  List<SavingGoal> _sortGoals(List<SavingGoal> goals) {
+    final sorted = List<SavingGoal>.from(goals);
+    switch (_sortType) {
+      case _SortType.alphabetical:
+        sorted.sort((a, b) => a.title.compareTo(b.title));
+      case _SortType.progressAsc:
+        sorted.sort((a, b) =>
+            (a.currentAmount / a.targetAmount)
+                .compareTo(b.currentAmount / b.targetAmount));
+      case _SortType.progressDesc:
+        sorted.sort((a, b) =>
+            (b.currentAmount / b.targetAmount)
+                .compareTo(a.currentAmount / a.targetAmount));
+      case _SortType.targetDate:
+        sorted.sort((a, b) {
+          if (a.targetDate == null && b.targetDate == null) return 0;
+          if (a.targetDate == null) return 1;
+          if (b.targetDate == null) return -1;
+          return a.targetDate!.compareTo(b.targetDate!);
+        });
+      case _SortType.none:
+        break;
+    }
+    return sorted;
+  }
 
   @override
   Widget build(BuildContext context) {
     final financeProvider = Provider.of<FinanceProvider>(context);
-    final savingGoals = financeProvider.savingGoals;
+    final savingGoals = _sortGoals(financeProvider.savingGoals);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -416,33 +452,37 @@ class SavingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.sort_by_alpha),
                 title: const Text('Alphabetical'),
+                selected: _sortType == _SortType.alphabetical,
                 onTap: () {
                   Navigator.pop(context);
-                  // Apply sort
+                  setState(() => _sortType = _SortType.alphabetical);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.arrow_upward),
                 title: const Text('Progress (Low to High)'),
+                selected: _sortType == _SortType.progressAsc,
                 onTap: () {
                   Navigator.pop(context);
-                  // Apply sort
+                  setState(() => _sortType = _SortType.progressAsc);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.arrow_downward),
                 title: const Text('Progress (High to Low)'),
+                selected: _sortType == _SortType.progressDesc,
                 onTap: () {
                   Navigator.pop(context);
-                  // Apply sort
+                  setState(() => _sortType = _SortType.progressDesc);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.calendar_today),
                 title: const Text('Target Date'),
+                selected: _sortType == _SortType.targetDate,
                 onTap: () {
                   Navigator.pop(context);
-                  // Apply sort
+                  setState(() => _sortType = _SortType.targetDate);
                 },
               ),
             ],
@@ -548,11 +588,3 @@ class SavingsScreen extends StatelessWidget {
   }
 }
 
-extension HexColor on Color {
-  static Color fromHex(String hexString) {
-    final buffer = StringBuffer();
-    if (hexString.length == 7) buffer.write('ff');
-    buffer.write(hexString.replaceFirst('#', ''));
-    return Color(int.parse(buffer.toString(), radix: 16));
-  }
-}
