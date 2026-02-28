@@ -120,7 +120,6 @@ class _CategoriesScreenState extends State<CategoriesScreen>
   }
 
   void _showAddCategoryDialog() {
-    // Reset selected values
     _nameController.clear();
     _selectedIcon = '0xe1b1';
     _selectedColor = Colors.blue;
@@ -128,151 +127,19 @@ class _CategoriesScreenState extends State<CategoriesScreen>
     showDialog(
       context: context,
       builder: (dialogContext) {
-        // Use StatefulBuilder to update dialog UI when color is selected
         return StatefulBuilder(builder: (context, setDialogState) {
+          final typeLabel = _selectedCategoryType == CategoryType.income
+              ? 'Income' : 'Expense';
           return AlertDialog(
-            title: Text(
-                'Add New ${_selectedCategoryType == CategoryType.income ? 'Income' : 'Expense'} Category'),
-            content: SingleChildScrollView(
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Category Name',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter a category name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedIcon,
-                      decoration: const InputDecoration(
-                        labelText: 'Icon',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _iconMap.map((Map<String, dynamic> icon) {
-                        return DropdownMenuItem<String>(
-                          value: icon['code'],
-                          child: Row(
-                            children: [
-                              Icon(IconData(
-                                _parseIconCode(icon['code']),
-                                fontFamily: 'MaterialIcons',
-                              )),
-                              const SizedBox(width: 8),
-                              Text(icon['name']),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          setDialogState(() {
-                            _selectedIcon = newValue;
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        Colors.red,
-                        Colors.pink,
-                        Colors.purple,
-                        Colors.deepPurple,
-                        Colors.indigo,
-                        Colors.blue,
-                        Colors.lightBlue,
-                        Colors.cyan,
-                        Colors.teal,
-                        Colors.green,
-                        Colors.lightGreen,
-                        Colors.lime,
-                        Colors.yellow,
-                        Colors.amber,
-                        Colors.orange,
-                        Colors.deepOrange,
-                      ].map((Color color) {
-                        return GestureDetector(
-                          onTap: () {
-                            setDialogState(() {
-                              _selectedColor = color;
-                            });
-                          },
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            margin: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _selectedColor == color
-                                    ? Colors.white
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
-                              boxShadow: _selectedColor == color
-                                  ? [
-                                      BoxShadow(
-                                        color: Colors.black.withAlpha(77),
-                                        blurRadius: 4,
-                                        spreadRadius: 1,
-                                      )
-                                    ]
-                                  : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            title: Text('Add New $typeLabel Category'),
+            content: _buildCategoryFormContent(setDialogState),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    final userId =
-                        Provider.of<AuthProvider>(dialogContext, listen: false)
-                            .user
-                            ?.uid;
-                    if (userId == null) {
-                      Navigator.pop(dialogContext);
-                      return;
-                    }
-
-                    final category = Category(
-                      id: '${DateTime.now().millisecondsSinceEpoch}',
-                      name: _nameController.text,
-                      icon: _selectedIcon,
-                      color: _selectedColor,
-                      userId: userId,
-                      createdAt: DateTime.now(),
-                      updatedAt: DateTime.now(),
-                      type: _selectedCategoryType,
-                    );
-
-                    // Close dialog first, then do async operation
-                    Navigator.pop(dialogContext);
-                    _addCategory(category);
-                  }
-                },
+                onPressed: () => _onAddCategorySubmit(dialogContext),
                 child: const Text('Add'),
               ),
             ],
@@ -280,6 +147,31 @@ class _CategoriesScreenState extends State<CategoriesScreen>
         });
       },
     );
+  }
+
+  void _onAddCategorySubmit(BuildContext dialogContext) {
+    if (!_formKey.currentState!.validate()) return;
+
+    final userId =
+        Provider.of<AuthProvider>(dialogContext, listen: false).user?.uid;
+    if (userId == null) {
+      Navigator.pop(dialogContext);
+      return;
+    }
+
+    final category = Category(
+      id: '${DateTime.now().millisecondsSinceEpoch}',
+      name: _nameController.text,
+      icon: _selectedIcon,
+      color: _selectedColor,
+      userId: userId,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      type: _selectedCategoryType,
+    );
+
+    Navigator.pop(dialogContext);
+    _addCategory(category);
   }
 
   // Separate method to handle async operation after dialog is closed
@@ -304,144 +196,150 @@ class _CategoriesScreenState extends State<CategoriesScreen>
     showDialog(
       context: context,
       builder: (dialogContext) {
-        // Use StatefulBuilder to update dialog UI when color is selected
         return StatefulBuilder(builder: (context, setDialogState) {
+          final typeLabel = category.type == CategoryType.income
+              ? 'Income' : 'Expense';
           return AlertDialog(
-            title: Text(
-                'Edit ${category.type == CategoryType.income ? 'Income' : 'Expense'} Category'),
-            content: SingleChildScrollView(
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Category Name',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter a category name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedIcon,
-                      decoration: const InputDecoration(
-                        labelText: 'Icon',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _iconMap.map((Map<String, dynamic> icon) {
-                        return DropdownMenuItem<String>(
-                          value: icon['code'],
-                          child: Row(
-                            children: [
-                              Icon(IconData(
-                                _parseIconCode(icon['code']),
-                                fontFamily: 'MaterialIcons',
-                              )),
-                              const SizedBox(width: 8),
-                              Text(icon['name']),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          setDialogState(() {
-                            _selectedIcon = newValue;
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        Colors.red,
-                        Colors.pink,
-                        Colors.purple,
-                        Colors.deepPurple,
-                        Colors.indigo,
-                        Colors.blue,
-                        Colors.lightBlue,
-                        Colors.cyan,
-                        Colors.teal,
-                        Colors.green,
-                        Colors.lightGreen,
-                        Colors.lime,
-                        Colors.yellow,
-                        Colors.amber,
-                        Colors.orange,
-                        Colors.deepOrange,
-                      ].map((Color color) {
-                        return GestureDetector(
-                          onTap: () {
-                            setDialogState(() {
-                              _selectedColor = color;
-                            });
-                          },
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            margin: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _selectedColor == color
-                                    ? Colors.white
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
-                              boxShadow: _selectedColor == color
-                                  ? [
-                                      BoxShadow(
-                                        color: Colors.black.withAlpha(77),
-                                        blurRadius: 4,
-                                        spreadRadius: 1,
-                                      )
-                                    ]
-                                  : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            title: Text('Edit $typeLabel Category'),
+            content: _buildCategoryFormContent(setDialogState),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    final updatedCategory = category.copyWith(
-                      name: _nameController.text,
-                      icon: _selectedIcon,
-                      color: _selectedColor,
-                      updatedAt: DateTime.now(),
-                    );
-
-                    // Close dialog first, then do async operation
-                    Navigator.pop(dialogContext);
-                    _updateCategory(updatedCategory);
-                  }
-                },
+                onPressed: () => _onEditCategorySubmit(dialogContext, category),
                 child: const Text('Save'),
               ),
             ],
           );
         });
       },
+    );
+  }
+
+  void _onEditCategorySubmit(BuildContext dialogContext, Category category) {
+    if (!_formKey.currentState!.validate()) return;
+
+    final updatedCategory = category.copyWith(
+      name: _nameController.text,
+      icon: _selectedIcon,
+      color: _selectedColor,
+      updatedAt: DateTime.now(),
+    );
+
+    Navigator.pop(dialogContext);
+    _updateCategory(updatedCategory);
+  }
+
+  Widget _buildCategoryFormContent(StateSetter setDialogState) {
+    return SingleChildScrollView(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildCategoryNameField(),
+            const SizedBox(height: 16),
+            _buildIconDropdown(setDialogState),
+            const SizedBox(height: 16),
+            _buildColorPicker(setDialogState),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryNameField() {
+    return TextFormField(
+      controller: _nameController,
+      decoration: const InputDecoration(
+        labelText: 'Category Name',
+        border: OutlineInputBorder(),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter a category name';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildIconDropdown(StateSetter setDialogState) {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedIcon,
+      decoration: const InputDecoration(
+        labelText: 'Icon',
+        border: OutlineInputBorder(),
+      ),
+      items: _iconMap.map((Map<String, dynamic> icon) {
+        return DropdownMenuItem<String>(
+          value: icon['code'],
+          child: Row(
+            children: [
+              Icon(IconData(
+                _parseIconCode(icon['code']),
+                fontFamily: 'MaterialIcons',
+              )),
+              const SizedBox(width: 8),
+              Text(icon['name']),
+            ],
+          ),
+        );
+      }).toList(),
+      onChanged: (String? newValue) {
+        if (newValue != null) {
+          setDialogState(() {
+            _selectedIcon = newValue;
+          });
+        }
+      },
+    );
+  }
+
+  Widget _buildColorPicker(StateSetter setDialogState) {
+    const colors = [
+      Colors.red, Colors.pink, Colors.purple, Colors.deepPurple,
+      Colors.indigo, Colors.blue, Colors.lightBlue, Colors.cyan,
+      Colors.teal, Colors.green, Colors.lightGreen, Colors.lime,
+      Colors.yellow, Colors.amber, Colors.orange, Colors.deepOrange,
+    ];
+
+    return Wrap(
+      spacing: 8,
+      children: colors.map((Color color) {
+        final isSelected = _selectedColor == color;
+        return GestureDetector(
+          onTap: () {
+            setDialogState(() {
+              _selectedColor = color;
+            });
+          },
+          child: Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected ? Colors.white : Colors.transparent,
+                width: 3,
+              ),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(77),
+                        blurRadius: 4,
+                        spreadRadius: 1,
+                      )
+                    ]
+                  : null,
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 

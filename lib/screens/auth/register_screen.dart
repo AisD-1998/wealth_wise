@@ -14,6 +14,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static const _kAlreadyRegistered = 'already registered';
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -64,7 +65,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       } else if (mounted && authProvider.error != null) {
         // Check if the error is about existing account
-        if (authProvider.error!.contains('already registered')) {
+        if (authProvider.error!.contains(_kAlreadyRegistered)) {
           // Show a specific dialog for already registered users
           _showAccountExistsDialog();
         } else {
@@ -100,7 +101,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       } else if (mounted) {
         // Check if there's an error about existing account
         if (authProvider.error != null &&
-            authProvider.error!.contains('already registered')) {
+            authProvider.error!.contains(_kAlreadyRegistered)) {
           _showAccountExistsDialog();
         } else {
           scaffoldMessenger.showSnackBar(
@@ -134,7 +135,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       } else if (mounted) {
         // Check if there's an error about existing account
         if (authProvider.error != null &&
-            authProvider.error!.contains('already registered')) {
+            authProvider.error!.contains(_kAlreadyRegistered)) {
           _showAccountExistsDialog();
         } else {
           scaffoldMessenger.showSnackBar(
@@ -187,6 +188,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final theme = Theme.of(context);
+    final isDisabled = _isLoading || authProvider.isLoading;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create Account')),
@@ -198,221 +200,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo and Title
-                Icon(
-                  Icons.account_balance_wallet,
-                  size: 60,
-                  color: theme.primaryColor,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Join WealthWise',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                Text(
-                  'Start your journey to financial freedom',
-                  style: theme.textTheme.bodyLarge,
-                  textAlign: TextAlign.center,
-                ),
+                _buildRegisterHeader(theme),
                 const SizedBox(height: 32),
-
-                // Registration Form
                 Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Name field
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Full Name',
-                          hintText: 'Enter your full name',
-                          prefixIcon: Icon(Icons.person),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your name';
-                          }
-                          return null;
-                        },
-                      ),
+                      _buildNameField(),
                       const SizedBox(height: 16),
-
-                      // Email field
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          hintText: 'Enter your email',
-                          prefixIcon: Icon(Icons.email),
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your email';
-                          }
-                          if (!value.contains('@') || !value.contains('.')) {
-                            return 'Please enter a valid email';
-                          }
-                          return null;
-                        },
-                      ),
+                      _buildRegisterEmailField(),
                       const SizedBox(height: 16),
-
-                      // Password field
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          hintText: 'Enter your password',
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: _togglePasswordVisibility,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter a password';
-                          }
-                          if (value.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
+                      _buildPasswordField(),
                       const SizedBox(height: 16),
-
-                      // Confirm password field
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        obscureText: _obscureConfirmPassword,
-                        decoration: InputDecoration(
-                          labelText: 'Confirm Password',
-                          hintText: 'Confirm your password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureConfirmPassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: _toggleConfirmPasswordVisibility,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please confirm your password';
-                          }
-                          if (value != _passwordController.text) {
-                            return 'Passwords do not match';
-                          }
-                          return null;
-                        },
-                      ),
+                      _buildConfirmPasswordField(),
                       const SizedBox(height: 24),
-
-                      // Register button
-                      ElevatedButton(
-                        onPressed: _isLoading || authProvider.isLoading
-                            ? null
-                            : _registerWithEmailPassword,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: _isLoading || authProvider.isLoading
-                              ? const LoadingIndicator(size: 24, message: '')
-                              : const Text(
-                                  'Create Account',
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                        ),
-                      ),
-
-                      // Error message
+                      _buildRegisterButton(isDisabled),
                       if (authProvider.error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Text(
-                            authProvider.error!,
-                            style: TextStyle(
-                              color: theme.colorScheme.error,
-                              fontSize: 14,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-
+                        _buildErrorMessage(authProvider.error!, theme),
                       const SizedBox(height: 20),
-
-                      // OR divider
-                      Row(
-                        children: [
-                          const Expanded(child: Divider()),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'OR',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color:
-                                    theme.colorScheme.onSurface.withAlpha(128),
-                              ),
-                            ),
-                          ),
-                          const Expanded(child: Divider()),
-                        ],
-                      ),
-
+                      _buildOrDivider(theme),
                       const SizedBox(height: 20),
-
-                      // Social sign-up buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CustomActionButton(
-                              onPressed: _isLoading || authProvider.isLoading
-                                  ? null
-                                  : _signUpWithGoogle,
-                              label: 'Google',
-                              icon: Icons.g_mobiledata,
-                              isSmall: true,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: CustomActionButton(
-                              onPressed: _isLoading || authProvider.isLoading
-                                  ? null
-                                  : _signUpWithFacebook,
-                              label: 'Facebook',
-                              icon: Icons.facebook,
-                              isSmall: true,
-                            ),
-                          ),
-                        ],
-                      ),
-
+                      _buildSocialSignUpButtons(isDisabled),
                       const SizedBox(height: 24),
-
-                      // Login link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('Already have an account?'),
-                          TextButton(
-                            onPressed: _navigateToLogin,
-                            child: const Text('Login'),
-                          ),
-                        ],
-                      ),
+                      _buildLoginLink(),
                     ],
                   ),
                 ),
@@ -421,6 +232,191 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRegisterHeader(ThemeData theme) {
+    return Column(
+      children: [
+        Icon(
+          Icons.account_balance_wallet,
+          size: 60,
+          color: theme.primaryColor,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Join WealthWise',
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        Text(
+          'Start your journey to financial freedom',
+          style: theme.textTheme.bodyLarge,
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNameField() {
+    return TextFormField(
+      controller: _nameController,
+      decoration: const InputDecoration(
+        labelText: 'Full Name',
+        hintText: 'Enter your full name',
+        prefixIcon: Icon(Icons.person),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter your name';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildRegisterEmailField() {
+    return TextFormField(
+      controller: _emailController,
+      decoration: const InputDecoration(
+        labelText: 'Email',
+        hintText: 'Enter your email',
+        prefixIcon: Icon(Icons.email),
+      ),
+      keyboardType: TextInputType.emailAddress,
+      validator: (value) {
+        if (value == null || value.isEmpty) return 'Please enter your email';
+        if (!value.contains('@') || !value.contains('.')) {
+          return 'Please enter a valid email';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextFormField(
+      controller: _passwordController,
+      obscureText: _obscurePassword,
+      decoration: InputDecoration(
+        labelText: 'Password',
+        hintText: 'Enter your password',
+        prefixIcon: const Icon(Icons.lock),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscurePassword ? Icons.visibility : Icons.visibility_off,
+          ),
+          onPressed: _togglePasswordVisibility,
+        ),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) return 'Please enter a password';
+        if (value.length < 6) return 'Password must be at least 6 characters';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildConfirmPasswordField() {
+    return TextFormField(
+      controller: _confirmPasswordController,
+      obscureText: _obscureConfirmPassword,
+      decoration: InputDecoration(
+        labelText: 'Confirm Password',
+        hintText: 'Confirm your password',
+        prefixIcon: const Icon(Icons.lock_outline),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+          ),
+          onPressed: _toggleConfirmPasswordVisibility,
+        ),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) return 'Please confirm your password';
+        if (value != _passwordController.text) return 'Passwords do not match';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildRegisterButton(bool isDisabled) {
+    return ElevatedButton(
+      onPressed: isDisabled ? null : _registerWithEmailPassword,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: isDisabled
+            ? const LoadingIndicator(size: 24, message: '')
+            : const Text('Create Account', style: TextStyle(fontSize: 16)),
+      ),
+    );
+  }
+
+  Widget _buildErrorMessage(String error, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Text(
+        error,
+        style: TextStyle(color: theme.colorScheme.error, fontSize: 14),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildOrDivider(ThemeData theme) {
+    return Row(
+      children: [
+        const Expanded(child: Divider()),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            'OR',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withAlpha(128),
+            ),
+          ),
+        ),
+        const Expanded(child: Divider()),
+      ],
+    );
+  }
+
+  Widget _buildSocialSignUpButtons(bool isDisabled) {
+    return Row(
+      children: [
+        Expanded(
+          child: CustomActionButton(
+            onPressed: isDisabled ? null : _signUpWithGoogle,
+            label: 'Google',
+            icon: Icons.g_mobiledata,
+            isSmall: true,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: CustomActionButton(
+            onPressed: isDisabled ? null : _signUpWithFacebook,
+            label: 'Facebook',
+            icon: Icons.facebook,
+            isSmall: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginLink() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Text('Already have an account?'),
+        TextButton(
+          onPressed: _navigateToLogin,
+          child: const Text('Login'),
+        ),
+      ],
     );
   }
 }

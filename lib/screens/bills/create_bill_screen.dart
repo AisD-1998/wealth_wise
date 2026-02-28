@@ -103,6 +103,17 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
     }
   }
 
+  Widget _buildSubmitContent() {
+    if (_isLoading) {
+      return const SizedBox(
+        height: 20,
+        width: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    return Text(_isEditing ? 'Update Bill' : 'Add Bill');
+  }
+
   @override
   Widget build(BuildContext context) {
     final financeProvider = Provider.of<FinanceProvider>(context);
@@ -127,109 +138,130 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
           key: _formKey,
           child: Column(
             children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Bill Name',
-                  hintText: 'e.g. Netflix, Rent, Electricity',
-                  prefixIcon: Icon(Icons.receipt_long),
-                ),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Enter a bill name' : null,
-              ),
+              _buildBillNameField(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  prefixIcon: Icon(Icons.attach_money),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Enter an amount';
-                  if (double.tryParse(v) == null) return 'Invalid number';
-                  if (double.parse(v) <= 0) return 'Must be > 0';
-                  return null;
-                },
-              ),
+              _buildBillAmountField(),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Category (Optional)',
-                  prefixIcon: Icon(Icons.category),
-                ),
-                items: expenseCategories
-                    .map((name) =>
-                        DropdownMenuItem(value: name, child: Text(name)))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedCategory = v),
-              ),
+              _buildBillCategoryDropdown(expenseCategories),
               const SizedBox(height: 16),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _dueDate,
-                    firstDate: DateTime.now(),
-                    lastDate:
-                        DateTime.now().add(const Duration(days: 3650)),
-                  );
-                  if (picked != null) setState(() => _dueDate = picked);
-                },
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'First Due Date',
-                    prefixIcon: Icon(Icons.calendar_today),
-                  ),
-                  child: Text(DateFormat('MMM dd, yyyy').format(_dueDate)),
-                ),
-              ),
+              _buildBillDueDatePicker(),
               const SizedBox(height: 16),
-              DropdownButtonFormField<BillRecurrence>(
-                initialValue: _recurrence,
-                decoration: const InputDecoration(
-                  labelText: 'Recurrence',
-                  prefixIcon: Icon(Icons.repeat),
-                ),
-                items: BillRecurrence.values
-                    .map((r) =>
-                        DropdownMenuItem(value: r, child: Text(r.label)))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => _recurrence = v);
-                },
-              ),
+              _buildBillRecurrenceDropdown(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _noteController,
-                decoration: const InputDecoration(
-                  labelText: 'Note (Optional)',
-                  prefixIcon: Icon(Icons.note),
-                ),
-                maxLines: 2,
-              ),
+              _buildBillNoteField(),
               const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isLoading ? null : _save,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(_isEditing ? 'Update Bill' : 'Add Bill'),
-                  ),
-                ),
-              ),
+              _buildBillSubmitButton(),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBillNameField() {
+    return TextFormField(
+      controller: _titleController,
+      decoration: const InputDecoration(
+        labelText: 'Bill Name',
+        hintText: 'e.g. Netflix, Rent, Electricity',
+        prefixIcon: Icon(Icons.receipt_long),
+      ),
+      validator: (v) =>
+          v == null || v.isEmpty ? 'Enter a bill name' : null,
+    );
+  }
+
+  Widget _buildBillAmountField() {
+    return TextFormField(
+      controller: _amountController,
+      decoration: const InputDecoration(
+        labelText: 'Amount',
+        prefixIcon: Icon(Icons.attach_money),
+      ),
+      keyboardType:
+          const TextInputType.numberWithOptions(decimal: true),
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Enter an amount';
+        if (double.tryParse(v) == null) return 'Invalid number';
+        if (double.parse(v) <= 0) return 'Must be > 0';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildBillCategoryDropdown(List<String> expenseCategories) {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedCategory,
+      decoration: const InputDecoration(
+        labelText: 'Category (Optional)',
+        prefixIcon: Icon(Icons.category),
+      ),
+      items: expenseCategories
+          .map((name) =>
+              DropdownMenuItem(value: name, child: Text(name)))
+          .toList(),
+      onChanged: (v) => setState(() => _selectedCategory = v),
+    );
+  }
+
+  Widget _buildBillDueDatePicker() {
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: _dueDate,
+          firstDate: DateTime.now(),
+          lastDate:
+              DateTime.now().add(const Duration(days: 3650)),
+        );
+        if (picked != null) setState(() => _dueDate = picked);
+      },
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'First Due Date',
+          prefixIcon: Icon(Icons.calendar_today),
+        ),
+        child: Text(DateFormat('MMM dd, yyyy').format(_dueDate)),
+      ),
+    );
+  }
+
+  Widget _buildBillRecurrenceDropdown() {
+    return DropdownButtonFormField<BillRecurrence>(
+      initialValue: _recurrence,
+      decoration: const InputDecoration(
+        labelText: 'Recurrence',
+        prefixIcon: Icon(Icons.repeat),
+      ),
+      items: BillRecurrence.values
+          .map((r) =>
+              DropdownMenuItem(value: r, child: Text(r.label)))
+          .toList(),
+      onChanged: (v) {
+        if (v != null) setState(() => _recurrence = v);
+      },
+    );
+  }
+
+  Widget _buildBillNoteField() {
+    return TextFormField(
+      controller: _noteController,
+      decoration: const InputDecoration(
+        labelText: 'Note (Optional)',
+        prefixIcon: Icon(Icons.note),
+      ),
+      maxLines: 2,
+    );
+  }
+
+  Widget _buildBillSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: _isLoading ? null : _save,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: _buildSubmitContent(),
         ),
       ),
     );

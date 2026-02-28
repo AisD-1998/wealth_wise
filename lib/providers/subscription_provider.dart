@@ -74,72 +74,16 @@ class SubscriptionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Initialize mobile ads SDK
-      try {
-        await MobileAds.instance.initialize();
-      } catch (adError) {
-        _logger.warning('MobileAds init error (may be already initialized): $adError');
-      }
-
-      // Migrate legacy SharedPrefs keys from old BillingService
+      await _initializeMobileAds();
       await _migrateLegacyPrefs();
-
-      // Load cached subscription status (instant, for quick UI)
       await _loadSubscriptionStatusFromPrefs();
-
-      // Sync with Firestore for latest status
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await _fetchSubscriptionFromDatabase(user.uid);
-      }
-
-      // Check if subscription has expired
-      if (_subscriptionEndDate != null &&
-          _subscriptionEndDate!.isBefore(DateTime.now())) {
-        _isSubscribed = false;
-        _subscriptionEndDate = null;
-        await _saveSubscriptionStatusToPrefs();
-        if (user != null) {
-          await _saveSubscriptionToDatabase(user.uid);
-        }
-      }
-
-      // Increment app load count for ad frequency
+      await _syncSubscriptionWithFirestore();
+      await _clearExpiredSubscription();
       await _incrementAppLoadCount();
-
-      // Safety timeout to prevent infinite loading
-      Timer(_initTimeout, () {
-        if (_isLoading) {
-          _logger.warning('Subscription initialization timed out');
-          _isLoading = false;
-          if (_products.isEmpty) _createFallbackProducts();
-          notifyListeners();
-        }
-      });
-
-      // Set up purchase stream listener
-      final purchaseStream = _inAppPurchase.purchaseStream;
-      _purchaseSubscription?.cancel();
-      _purchaseSubscription = purchaseStream.listen(
-        _handlePurchaseUpdates,
-        onDone: () => _purchaseSubscription?.cancel(),
-        onError: (error) {
-          _logger.warning('Purchase stream error: $error');
-        },
-      );
-
-      // Load products from store
+      _startInitTimeout();
+      _setupPurchaseStream();
       await _loadProducts();
-
-      // Initialize ads if user is not subscribed
-      if (!_isSubscribed) {
-        try {
-          _createBannerAd();
-          _createInterstitialAd();
-        } catch (adError) {
-          _logger.warning('Error creating ads: $adError');
-        }
-      }
+      _initializeAdsIfNeeded();
 
       _isLoading = false;
       notifyListeners();
@@ -149,6 +93,68 @@ class SubscriptionProvider extends ChangeNotifier {
       _isLoading = false;
       if (_products.isEmpty) _createFallbackProducts();
       notifyListeners();
+    }
+  }
+
+  Future<void> _initializeMobileAds() async {
+    try {
+      await MobileAds.instance.initialize();
+    } catch (adError) {
+      _logger.warning('MobileAds init error (may be already initialized): $adError');
+    }
+  }
+
+  Future<void> _syncSubscriptionWithFirestore() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await _fetchSubscriptionFromDatabase(user.uid);
+    }
+  }
+
+  Future<void> _clearExpiredSubscription() async {
+    if (_subscriptionEndDate == null ||
+        !_subscriptionEndDate!.isBefore(DateTime.now())) {
+      return;
+    }
+    _isSubscribed = false;
+    _subscriptionEndDate = null;
+    await _saveSubscriptionStatusToPrefs();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await _saveSubscriptionToDatabase(user.uid);
+    }
+  }
+
+  void _startInitTimeout() {
+    Timer(_initTimeout, () {
+      if (_isLoading) {
+        _logger.warning('Subscription initialization timed out');
+        _isLoading = false;
+        if (_products.isEmpty) _createFallbackProducts();
+        notifyListeners();
+      }
+    });
+  }
+
+  void _setupPurchaseStream() {
+    final purchaseStream = _inAppPurchase.purchaseStream;
+    _purchaseSubscription?.cancel();
+    _purchaseSubscription = purchaseStream.listen(
+      _handlePurchaseUpdates,
+      onDone: () => _purchaseSubscription?.cancel(),
+      onError: (error) {
+        _logger.warning('Purchase stream error: $error');
+      },
+    );
+  }
+
+  void _initializeAdsIfNeeded() {
+    if (_isSubscribed) return;
+    try {
+      _createBannerAd();
+      _createInterstitialAd();
+    } catch (adError) {
+      _logger.warning('Error creating ads: $adError');
     }
   }
 
@@ -539,11 +545,14 @@ class SubscriptionProvider extends ChangeNotifier {
   Future<void> _saveSubscriptionToDatabase(String userId,
       [String? productId]) async {
     try {
+      String? subscriptionType;
+      if (_isSubscribed && productId != null) {
+        subscriptionType = productId.contains('annual') ? 'annual' : 'monthly';
+      }
+
       final data = <String, dynamic>{
         'isSubscribed': _isSubscribed,
-        'subscriptionType': _isSubscribed && productId != null
-            ? (productId.contains('annual') ? 'annual' : 'monthly')
-            : null,
+        'subscriptionType': subscriptionType,
         'subscriptionEndDate': _subscriptionEndDate,
       };
 

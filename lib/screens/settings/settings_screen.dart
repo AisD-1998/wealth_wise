@@ -63,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool confirm = await showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(AppStrings.kSignOut),
+            title: const Text(AppStrings.kSignOut),
             content: const Text('Are you sure you want to sign out?'),
             actions: [
               TextButton(
@@ -72,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: Text(AppStrings.kSignOut),
+                child: const Text(AppStrings.kSignOut),
               ),
             ],
           ),
@@ -531,7 +531,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           backgroundColor: theme.colorScheme.errorContainer,
           child: Icon(Icons.logout, color: theme.colorScheme.onErrorContainer),
         ),
-        title: Text(AppStrings.kSignOut),
+        title: const Text(AppStrings.kSignOut),
         onTap: () => _handleSignOut(context, authProvider),
       ),
     ];

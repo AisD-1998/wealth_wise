@@ -487,8 +487,8 @@ class _TransactionListItemState extends State<TransactionListItem> {
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: Text(AppStrings.kDeleteTransaction),
-          content: Text(AppStrings.kDeleteConfirmation),
+          title: const Text(AppStrings.kDeleteTransaction),
+          content: const Text(AppStrings.kDeleteConfirmation),
           actions: <Widget>[
             TextButton(
               child: const Text('Cancel'),
@@ -530,7 +530,7 @@ class _TransactionListItemState extends State<TransactionListItem> {
         if (success) {
           scaffoldMessenger.showSnackBar(
             SnackBar(
-              content: Text(AppStrings.kTransactionDeleted),
+              content: const Text(AppStrings.kTransactionDeleted),
               action: SnackBarAction(
                 label: 'Undo',
                 onPressed: () async {
@@ -757,6 +757,82 @@ class _TransactionListItemState extends State<TransactionListItem> {
     );
   }
 
+  /// Confirms deletion and performs the delete with undo support.
+  Future<void> _confirmAndDeleteTransaction({
+    required BuildContext context,
+    required app_model.Transaction transaction,
+    required FinanceProvider financeProvider,
+    required AuthProvider authProvider,
+    required ScaffoldMessengerState scaffoldMessenger,
+  }) async {
+    final confirm = await _confirmDelete(context);
+    if (!confirm) return;
+
+    scaffoldMessenger.showSnackBar(
+      LoadingAnimationUtils.loadingSnackBar(AppStrings.kDeletingTransaction),
+    );
+
+    try {
+      final success = await financeProvider.deleteTransaction(transaction);
+
+      if (success) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: const Text(AppStrings.kTransactionDeleted),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                await financeProvider.addTransaction(transaction);
+                if (authProvider.user?.uid != null) {
+                  await financeProvider
+                      .initializeFinanceData(authProvider.user!.uid);
+                }
+              },
+            ),
+          ),
+        );
+
+        if (authProvider.user?.uid != null) {
+          await financeProvider
+              .initializeFinanceData(authProvider.user!.uid);
+        }
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text(financeProvider.error ?? AppStrings.kDeleteFailed),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Closes the modal and opens the edit form for the given transaction.
+  void _editTransactionFromModal(
+    BuildContext context,
+    app_model.Transaction transaction,
+  ) {
+    final transactionToEdit = transaction;
+    final currentContext = context;
+
+    Navigator.pop(context);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      UIHelpers.showTransactionForm(
+        currentContext,
+        transactionToEdit.type,
+        existingTransaction: transactionToEdit,
+      );
+    });
+  }
+
   /// Builds the Edit/Delete action buttons for the transaction detail bottom sheet.
   Widget _buildActionButtons(
     BuildContext context,
@@ -774,89 +850,22 @@ class _TransactionListItemState extends State<TransactionListItem> {
             OutlinedButton.icon(
               icon: const Icon(Icons.edit),
               label: const Text('Edit'),
-              onPressed: () {
-                // Get a reference to these before closing modal
-                final transactionToEdit = transaction;
-                final currentContext = context;
-
-                // Close the modal
-                Navigator.pop(context);
-
-                // Show edit form using a more reliable approach
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  UIHelpers.showTransactionForm(
-                    currentContext,
-                    transactionToEdit.type,
-                    existingTransaction: transactionToEdit,
-                  );
-                });
-              },
+              onPressed: () =>
+                  _editTransactionFromModal(context, transaction),
             ),
             OutlinedButton.icon(
               icon: const Icon(Icons.delete, color: Colors.red),
               label: const Text('Delete',
                   style: TextStyle(color: Colors.red)),
               onPressed: () async {
-                // Close the modal first
                 Navigator.pop(context);
-
-                final confirm = await _confirmDelete(context);
-
-                if (confirm) {
-                  // Show loading indicator
-                  scaffoldMessenger.showSnackBar(
-                    LoadingAnimationUtils.loadingSnackBar(
-                        AppStrings.kDeletingTransaction),
-                  );
-
-                  try {
-                    final success = await financeProvider
-                        .deleteTransaction(transaction);
-
-                    if (success) {
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(
-                          content: Text(AppStrings.kTransactionDeleted),
-                          action: SnackBarAction(
-                            label: 'Undo',
-                            onPressed: () async {
-                              await financeProvider
-                                  .addTransaction(transaction);
-                              if (authProvider.user?.uid !=
-                                  null) {
-                                await financeProvider
-                                    .initializeFinanceData(
-                                        authProvider.user!.uid);
-                              }
-                            },
-                          ),
-                        ),
-                      );
-
-                      // Refresh the data
-                      if (authProvider.user?.uid != null) {
-                        await financeProvider
-                            .initializeFinanceData(
-                                authProvider.user!.uid);
-                      }
-                    } else {
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(
-                          content: Text(financeProvider.error ??
-                              AppStrings.kDeleteFailed),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    scaffoldMessenger.showSnackBar(
-                      SnackBar(
-                        content: Text('Error: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
+                await _confirmAndDeleteTransaction(
+                  context: context,
+                  transaction: transaction,
+                  financeProvider: financeProvider,
+                  authProvider: authProvider,
+                  scaffoldMessenger: scaffoldMessenger,
+                );
               },
             ),
           ],
@@ -1038,86 +1047,22 @@ class _TransactionListItemState extends State<TransactionListItem> {
               ListTile(
                 leading: const Icon(Icons.edit),
                 title: const Text('Edit Transaction'),
-                onTap: () {
-                  // Get a reference to these before closing modal
-                  final transactionToEdit = transaction;
-                  final currentContext = context;
-
-                  // Close the modal
-                  Navigator.pop(context);
-
-                  // Show edit form using a more reliable approach
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    UIHelpers.showTransactionForm(
-                      currentContext,
-                      transactionToEdit.type,
-                      existingTransaction: transactionToEdit,
-                    );
-                  });
-                },
+                onTap: () =>
+                    _editTransactionFromModal(context, transaction),
               ),
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
-                title: Text(AppStrings.kDeleteTransaction,
-                    style: const TextStyle(color: Colors.red)),
+                title: const Text(AppStrings.kDeleteTransaction,
+                    style: TextStyle(color: Colors.red)),
                 onTap: () async {
-                  // Close the modal first
                   Navigator.pop(context);
-
-                  final confirm = await _confirmDelete(context);
-
-                  if (confirm) {
-                    // Show loading indicator
-                    scaffoldMessenger.showSnackBar(
-                      LoadingAnimationUtils.loadingSnackBar(
-                          AppStrings.kDeletingTransaction),
-                    );
-
-                    try {
-                      final success =
-                          await financeProvider.deleteTransaction(transaction);
-
-                      if (success) {
-                        scaffoldMessenger.showSnackBar(
-                          SnackBar(
-                            content: Text(AppStrings.kTransactionDeleted),
-                            action: SnackBarAction(
-                              label: 'Undo',
-                              onPressed: () async {
-                                await financeProvider
-                                    .addTransaction(transaction);
-                                if (authProvider.user?.uid != null) {
-                                  await financeProvider.initializeFinanceData(
-                                      authProvider.user!.uid);
-                                }
-                              },
-                            ),
-                          ),
-                        );
-
-                        // Refresh the data
-                        if (authProvider.user?.uid != null) {
-                          await financeProvider
-                              .initializeFinanceData(authProvider.user!.uid);
-                        }
-                      } else {
-                        scaffoldMessenger.showSnackBar(
-                          SnackBar(
-                            content: Text(financeProvider.error ??
-                                AppStrings.kDeleteFailed),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(
-                          content: Text('Error: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
+                  await _confirmAndDeleteTransaction(
+                    context: context,
+                    transaction: transaction,
+                    financeProvider: financeProvider,
+                    authProvider: authProvider,
+                    scaffoldMessenger: scaffoldMessenger,
+                  );
                 },
               ),
             ],

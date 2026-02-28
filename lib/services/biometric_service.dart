@@ -60,93 +60,94 @@ class BiometricService {
       final availableBiometrics = await getAvailableBiometrics();
       developer.log('Available biometrics before auth: $availableBiometrics');
 
-      // Use a more specific configuration
       final result = await _localAuth.authenticate(
         localizedReason: reason,
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true, // Only use biometrics, no fallback to PIN
-          sensitiveTransaction: false, // Not a sensitive transaction
+          biometricOnly: true,
+          sensitiveTransaction: false,
         ),
       );
 
       developer.log('Authentication result: $result');
 
-      // Even if result is true, add a small delay to ensure system stability
       if (result) {
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
       return result;
     } on PlatformException catch (e) {
-      // Specific handling for known error patterns
-      if (e.message != null) {
-        if (e.message!.contains("GoogleApiManager")) {
-          // This is the specific error we're seeing in logs but authentication still succeeded
-          developer.log(
-              'Google API error but biometric likely succeeded: ${e.code} - ${e.message}',
-              error: e,
-              stackTrace: StackTrace.current);
-          // If BiometricPrompt reported success in logs, we'll allow this authentication
-          return true;
-        }
-
-        // Handle Facebook SDK errors which don't affect biometric authentication
-        if (e.message!.contains("facebook") ||
-            e.message!.contains("GraphResponse")) {
-          developer.log(
-              'Facebook SDK error encountered but not related to biometrics: ${e.code} - ${e.message}',
-              error: e,
-              stackTrace: StackTrace.current);
-          // Continue with authentication as this error is unrelated
-          return true;
-        }
-      }
-
-      developer.log(
-          'Authentication PlatformException: ${e.code} - ${e.message}',
-          error: e,
-          stackTrace: StackTrace.current);
-
-      if (e.code == auth_error.notAvailable) {
-        _logger.warning('Biometric authentication is not available');
-        developer.log('Biometric authentication is not available');
-      } else if (e.code == auth_error.notEnrolled) {
-        _logger.warning('No biometrics enrolled on this device');
-        developer.log('No biometrics enrolled on this device');
-      } else if (e.code == auth_error.passcodeNotSet) {
-        _logger.warning('No PIN/pattern/password set on the device');
-        developer.log('No PIN/pattern/password set on the device');
-      } else if (e.code == auth_error.lockedOut) {
-        _logger.warning('Biometric authentication temporarily locked out');
-        developer.log('Biometric authentication temporarily locked out');
-      } else if (e.code == auth_error.permanentlyLockedOut) {
-        _logger.warning('Biometric authentication permanently locked out');
-        developer.log('Biometric authentication permanently locked out');
-      } else {
-        _logger.warning('Error authenticating with biometrics: $e');
-        developer.log('Error authenticating with biometrics: $e');
-      }
+      if (_isUnrelatedPlatformError(e)) return true;
+      _logPlatformError(e);
       return false;
     } catch (e) {
-      // For general exceptions, check if they're related to Facebook SDK
-      final errorString = e.toString().toLowerCase();
-      if (errorString.contains("facebook") ||
-          errorString.contains("graph") ||
-          errorString.contains("oauth")) {
-        developer.log(
-            'Facebook-related error encountered but not biometric related',
-            error: e,
-            stackTrace: StackTrace.current);
-        // This error is likely unrelated to biometric authentication
-        return true;
-      }
-
+      if (_isUnrelatedGeneralError(e)) return true;
       developer.log('Authentication general exception: $e',
           error: e, stackTrace: StackTrace.current);
       _logger.severe('Unexpected error during authentication: $e');
       return false;
     }
+  }
+
+  /// Returns true if the PlatformException is from an unrelated SDK
+  /// (Google API or Facebook) and biometric auth likely still succeeded.
+  bool _isUnrelatedPlatformError(PlatformException e) {
+    if (e.message == null) return false;
+
+    if (e.message!.contains("GoogleApiManager")) {
+      developer.log(
+          'Google API error but biometric likely succeeded: ${e.code} - ${e.message}',
+          error: e, stackTrace: StackTrace.current);
+      return true;
+    }
+
+    if (e.message!.contains("facebook") ||
+        e.message!.contains("GraphResponse")) {
+      developer.log(
+          'Facebook SDK error encountered but not related to biometrics: ${e.code} - ${e.message}',
+          error: e, stackTrace: StackTrace.current);
+      return true;
+    }
+
+    return false;
+  }
+
+  void _logPlatformError(PlatformException e) {
+    developer.log(
+        'Authentication PlatformException: ${e.code} - ${e.message}',
+        error: e, stackTrace: StackTrace.current);
+
+    final errorMessages = {
+      auth_error.notAvailable: 'Biometric authentication is not available',
+      auth_error.notEnrolled: 'No biometrics enrolled on this device',
+      auth_error.passcodeNotSet: 'No PIN/pattern/password set on the device',
+      auth_error.lockedOut: 'Biometric authentication temporarily locked out',
+      auth_error.permanentlyLockedOut:
+          'Biometric authentication permanently locked out',
+    };
+
+    final message = errorMessages[e.code];
+    if (message != null) {
+      _logger.warning(message);
+      developer.log(message);
+    } else {
+      _logger.warning('Error authenticating with biometrics: $e');
+      developer.log('Error authenticating with biometrics: $e');
+    }
+  }
+
+  /// Returns true if a general exception is from an unrelated SDK.
+  bool _isUnrelatedGeneralError(Object e) {
+    final errorString = e.toString().toLowerCase();
+    if (errorString.contains("facebook") ||
+        errorString.contains("graph") ||
+        errorString.contains("oauth")) {
+      developer.log(
+          'Facebook-related error encountered but not biometric related',
+          error: e, stackTrace: StackTrace.current);
+      return true;
+    }
+    return false;
   }
 
   // Save credentials for biometric login

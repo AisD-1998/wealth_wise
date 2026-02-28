@@ -12,6 +12,8 @@ class SubscriptionScreen extends StatefulWidget {
 }
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
+  static const _kCurrentPlan = 'Current Plan';
+
   int _selectedPlanIndex = 0;
   bool _initializing = true;
 
@@ -38,6 +40,171 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  Widget _buildCurrentPlanCard(
+    ThemeData theme, SubscriptionProvider provider) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  provider.isSubscribed ? Icons.verified : Icons.info_outline,
+                  color: provider.isSubscribed ? Colors.green : Colors.orange,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _kCurrentPlan,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              provider.isSubscribed ? 'Premium' : 'Free',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: provider.isSubscribed ? Colors.green : Colors.grey[700],
+              ),
+            ),
+            if (provider.isSubscribed &&
+                provider.subscriptionEndDate != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  'Valid until: ${_formatDate(provider.subscriptionEndDate!)}',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+            if (provider.isSubscribed)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                label: const Text('Cancel Subscription'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                ),
+                onPressed: () => _showCancelDialog(context),
+              )
+            else
+              Text(
+                'Upgrade to Premium for unlimited access and enhanced features.',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildPlanOptions(
+      ThemeData theme, SubscriptionProvider provider) {
+    return [
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Text(
+          'Choose a Plan',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      _buildPlanSelectionCard(
+        0, 'Free', '0.00', 'Limited features',
+        [
+          'Up to 50 transactions per month',
+          'Basic expense categories',
+          'Simple reports and charts',
+          'Single savings goal',
+          'Ad-supported',
+        ],
+        Colors.grey,
+      ),
+      const SizedBox(height: 16),
+      _buildPlanSelectionCard(
+        1, 'Monthly Premium',
+        _getProductPrice(provider, SubscriptionConstants.monthlyProductId),
+        'Full access billed monthly',
+        [
+          'Unlimited transactions',
+          'Custom categories',
+          'Advanced financial reports',
+          'Multiple savings goals',
+          'Ad-free experience',
+          'Sync across devices',
+          'Priority support',
+        ],
+        Colors.blue,
+      ),
+      const SizedBox(height: 16),
+      _buildPlanSelectionCard(
+        2, 'Annual Premium',
+        _getProductPrice(provider, SubscriptionConstants.annualProductId),
+        'Save ${SubscriptionConstants.annualDiscountLabel} compared to monthly',
+        [
+          'All Monthly Premium features',
+          'Best value option',
+          'Financial planning tools',
+          'Export data in multiple formats',
+          'Premium budgeting tools',
+        ],
+        Colors.indigo,
+      ),
+      const SizedBox(height: 24),
+      _buildSubscribeButton(theme, provider),
+      const SizedBox(height: 12),
+      _buildRestorePurchasesButton(provider),
+    ];
+  }
+
+  Widget _buildSubscribeButton(
+      ThemeData theme, SubscriptionProvider provider) {
+    return ElevatedButton(
+      onPressed: _selectedPlanIndex == 0
+          ? null
+          : () => _handleSubscriptionPurchase(context, provider),
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: Colors.grey[300],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      child: Text(
+        _subscribeButtonLabel(),
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildRestorePurchasesButton(SubscriptionProvider provider) {
+    return Center(
+      child: TextButton(
+        onPressed: () => _handleRestorePurchases(context, provider),
+        child: Text(
+          'Restore Purchases',
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -57,196 +224,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           return ListView(
             padding: const EdgeInsets.all(16.0),
             children: [
-              // Subscription status card
-              Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            provider.isSubscribed
-                                ? Icons.verified
-                                : Icons.info_outline,
-                            color: provider.isSubscribed
-                                ? Colors.green
-                                : Colors.orange,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Current Plan',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        provider.isSubscribed ? 'Premium' : 'Free',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: provider.isSubscribed
-                              ? Colors.green
-                              : Colors.grey[700],
-                        ),
-                      ),
-                      if (provider.isSubscribed &&
-                          provider.subscriptionEndDate != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            'Valid until: ${_formatDate(provider.subscriptionEndDate!)}',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 16),
-                      if (provider.isSubscribed)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.cancel_outlined,
-                              color: Colors.red),
-                          label: const Text('Cancel Subscription'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
-                            side: const BorderSide(color: Colors.red),
-                          ),
-                          onPressed: () => _showCancelDialog(context),
-                        )
-                      else
-                        Text(
-                          'Upgrade to Premium for unlimited access and enhanced features.',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Subscription options section (only shown if not subscribed)
-              if (!provider.isSubscribed) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  child: Text(
-                    'Choose a Plan',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-
-                // Plan selection cards
-                _buildPlanSelectionCard(
-                  context,
-                  0,
-                  'Free',
-                  '0.00',
-                  'Limited features',
-                  [
-                    'Up to 50 transactions per month',
-                    'Basic expense categories',
-                    'Simple reports and charts',
-                    'Single savings goal',
-                    'Ad-supported',
-                  ],
-                  Colors.grey,
-                  provider.isSubscribed,
-                ),
-
-                const SizedBox(height: 16),
-
-                _buildPlanSelectionCard(
-                  context,
-                  1,
-                  'Monthly Premium',
-                  _getProductPrice(provider, SubscriptionConstants.monthlyProductId),
-                  'Full access billed monthly',
-                  [
-                    'Unlimited transactions',
-                    'Custom categories',
-                    'Advanced financial reports',
-                    'Multiple savings goals',
-                    'Ad-free experience',
-                    'Sync across devices',
-                    'Priority support',
-                  ],
-                  Colors.blue,
-                  provider.isSubscribed,
-                ),
-
-                const SizedBox(height: 16),
-
-                _buildPlanSelectionCard(
-                  context,
-                  2,
-                  'Annual Premium',
-                  _getProductPrice(provider, SubscriptionConstants.annualProductId),
-                  'Save ${SubscriptionConstants.annualDiscountLabel} compared to monthly',
-                  [
-                    'All Monthly Premium features',
-                    'Best value option',
-                    'Financial planning tools',
-                    'Export data in multiple formats',
-                    'Premium budgeting tools',
-                  ],
-                  Colors.indigo,
-                  provider.isSubscribed,
-                ),
-
-                const SizedBox(height: 24),
-
-                // Subscribe button
-                ElevatedButton(
-                  onPressed: _selectedPlanIndex == 0
-                      ? null
-                      : () => _handleSubscriptionPurchase(context, provider),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey[300],
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(
-                    _selectedPlanIndex == 0
-                        ? 'Current Plan'
-                        : 'Subscribe to ${_selectedPlanIndex == 1 ? "Monthly" : "Annual"} Premium',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // Restore Purchases button
-                Center(
-                  child: TextButton(
-                    onPressed: () => _handleRestorePurchases(context, provider),
-                    child: Text(
-                      'Restore Purchases',
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              _buildCurrentPlanCard(theme, provider),
+              if (!provider.isSubscribed) ..._buildPlanOptions(theme, provider),
             ],
           );
         },
@@ -255,16 +234,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Widget _buildPlanSelectionCard(
-    BuildContext context,
     int planIndex,
     String planName,
     String price,
     String description,
     List<String> features,
     Color accentColor,
-    bool isCurrentlySubscribed,
   ) {
     final theme = Theme.of(context);
+    final isCurrentlySubscribed =
+        Provider.of<SubscriptionProvider>(context, listen: false).isSubscribed;
     final isCurrentPlan = isCurrentlySubscribed && planIndex > 0 ||
         planIndex == 0 && !isCurrentlySubscribed;
 
@@ -319,7 +298,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         border: Border.all(color: accentColor),
                       ),
                       child: Text(
-                        'Current Plan',
+                        _kCurrentPlan,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -386,6 +365,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ),
       ),
     );
+  }
+
+  String _subscribeButtonLabel() {
+    if (_selectedPlanIndex == 0) {
+      return _kCurrentPlan;
+    }
+    final planName = _selectedPlanIndex == 1 ? 'Monthly' : 'Annual';
+    return 'Subscribe to $planName Premium';
   }
 
   String _getProductPrice(SubscriptionProvider provider, String productId) {

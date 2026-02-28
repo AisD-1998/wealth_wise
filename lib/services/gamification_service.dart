@@ -126,6 +126,77 @@ class GamificationService {
     return streak;
   }
 
+  /// Returns this month's income and expenses from the given transactions.
+  static ({double income, double expenses}) _thisMonthTotals(
+      List<Transaction> transactions) {
+    final now = DateTime.now();
+    final thisMonthTxns = transactions.where(
+        (t) => t.date.year == now.year && t.date.month == now.month);
+    final income = thisMonthTxns
+        .where((t) => t.type == TransactionType.income)
+        .fold<double>(0, (sum, t) => sum + t.amount);
+    final expenses = thisMonthTxns
+        .where((t) => t.type == TransactionType.expense)
+        .fold<double>(0, (sum, t) => sum + t.amount);
+    return (income: income, expenses: expenses);
+  }
+
+  static bool _checkFirstTransaction(List<Transaction> transactions) {
+    return transactions.isNotEmpty;
+  }
+
+  static bool _checkBudgetMaster(List<Budget> budgets) {
+    return budgets.isNotEmpty && budgets.every((b) => b.spent <= b.amount);
+  }
+
+  static bool _checkWeekWarrior(int streak) {
+    return streak >= 7;
+  }
+
+  static bool _checkSavingsStar(List<SavingGoal> goals) {
+    return goals.any((g) => g.isCompleted);
+  }
+
+  static bool _checkMonthMaven(int streak) {
+    return streak >= 30;
+  }
+
+  static bool _checkBigSaver(List<Transaction> transactions) {
+    final totals = _thisMonthTotals(transactions);
+    return totals.income > 0 &&
+        (totals.income - totals.expenses) / totals.income > 0.3;
+  }
+
+  static bool _checkCategoryPro(List<Transaction> transactions) {
+    final expenseCategories = transactions
+        .where(
+            (t) => t.type == TransactionType.expense && t.category != null)
+        .map((t) => t.category!)
+        .toSet();
+    return expenseCategories.length >= 5;
+  }
+
+  static bool _checkCenturyClub(List<Transaction> transactions) {
+    return transactions.length >= 100;
+  }
+
+  static bool _checkGoalGetter(List<SavingGoal> goals) {
+    return goals.length >= 3;
+  }
+
+  static bool _checkBudgetBuilder(List<Budget> budgets) {
+    return budgets.length >= 5;
+  }
+
+  static bool _checkStreakLegend(int streak) {
+    return streak >= 90;
+  }
+
+  static bool _checkDebtFree(List<Transaction> transactions) {
+    final totals = _thisMonthTotals(transactions);
+    return totals.income > totals.expenses && totals.income > 0;
+  }
+
   /// Check which achievements should be unlocked based on current data.
   /// Returns a list of newly unlocked achievement IDs.
   static List<String> checkAchievements({
@@ -135,102 +206,25 @@ class GamificationService {
     required int streak,
     required Set<String> alreadyUnlocked,
   }) {
+    final checks = <String, bool Function()>{
+      'first_transaction': () => _checkFirstTransaction(transactions),
+      'budget_master': () => _checkBudgetMaster(budgets),
+      'week_warrior': () => _checkWeekWarrior(streak),
+      'savings_star': () => _checkSavingsStar(goals),
+      'month_maven': () => _checkMonthMaven(streak),
+      'big_saver': () => _checkBigSaver(transactions),
+      'category_pro': () => _checkCategoryPro(transactions),
+      'century_club': () => _checkCenturyClub(transactions),
+      'goal_getter': () => _checkGoalGetter(goals),
+      'budget_builder': () => _checkBudgetBuilder(budgets),
+      'streak_legend': () => _checkStreakLegend(streak),
+      'debt_free': () => _checkDebtFree(transactions),
+    };
+
     final newlyUnlocked = <String>[];
-
-    // First Step - first transaction
-    if (!alreadyUnlocked.contains('first_transaction') &&
-        transactions.isNotEmpty) {
-      newlyUnlocked.add('first_transaction');
-    }
-
-    // Budget Master - all budgets under limit
-    if (!alreadyUnlocked.contains('budget_master') && budgets.isNotEmpty) {
-      final allWithinBudget = budgets.every((b) => b.spent <= b.amount);
-      if (allWithinBudget) {
-        newlyUnlocked.add('budget_master');
-      }
-    }
-
-    // Week Warrior - 7 day streak
-    if (!alreadyUnlocked.contains('week_warrior') && streak >= 7) {
-      newlyUnlocked.add('week_warrior');
-    }
-
-    // Savings Star - completed a goal
-    if (!alreadyUnlocked.contains('savings_star')) {
-      final hasCompletedGoal = goals.any((g) => g.isCompleted);
-      if (hasCompletedGoal) {
-        newlyUnlocked.add('savings_star');
-      }
-    }
-
-    // Month Maven - 30 day streak
-    if (!alreadyUnlocked.contains('month_maven') && streak >= 30) {
-      newlyUnlocked.add('month_maven');
-    }
-
-    // Big Saver - savings rate > 30%
-    if (!alreadyUnlocked.contains('big_saver')) {
-      final now = DateTime.now();
-      final thisMonthTxns = transactions.where((t) =>
-          t.date.year == now.year && t.date.month == now.month);
-      final income = thisMonthTxns
-          .where((t) => t.type == TransactionType.income)
-          .fold<double>(0, (sum, t) => sum + t.amount);
-      final expenses = thisMonthTxns
-          .where((t) => t.type == TransactionType.expense)
-          .fold<double>(0, (sum, t) => sum + t.amount);
-      if (income > 0 && (income - expenses) / income > 0.3) {
-        newlyUnlocked.add('big_saver');
-      }
-    }
-
-    // Category Pro - used 5+ expense categories
-    if (!alreadyUnlocked.contains('category_pro')) {
-      final expenseCategories = transactions
-          .where((t) =>
-              t.type == TransactionType.expense && t.category != null)
-          .map((t) => t.category!)
-          .toSet();
-      if (expenseCategories.length >= 5) {
-        newlyUnlocked.add('category_pro');
-      }
-    }
-
-    // Century Club - 100 transactions
-    if (!alreadyUnlocked.contains('century_club') &&
-        transactions.length >= 100) {
-      newlyUnlocked.add('century_club');
-    }
-
-    // Goal Getter - 3 saving goals
-    if (!alreadyUnlocked.contains('goal_getter') && goals.length >= 3) {
-      newlyUnlocked.add('goal_getter');
-    }
-
-    // Budget Builder - 5 budgets
-    if (!alreadyUnlocked.contains('budget_builder') && budgets.length >= 5) {
-      newlyUnlocked.add('budget_builder');
-    }
-
-    // Streak Legend - 90 day streak
-    if (!alreadyUnlocked.contains('streak_legend') && streak >= 90) {
-      newlyUnlocked.add('streak_legend');
-    }
-
-    // In The Green - positive balance this month
-    if (!alreadyUnlocked.contains('debt_free')) {
-      final now = DateTime.now();
-      final thisMonthTxns = transactions.where((t) =>
-          t.date.year == now.year && t.date.month == now.month);
-      final income = thisMonthTxns
-          .where((t) => t.type == TransactionType.income)
-          .fold<double>(0, (sum, t) => sum + t.amount);
-      final expenses = thisMonthTxns
-          .where((t) => t.type == TransactionType.expense)
-          .fold<double>(0, (sum, t) => sum + t.amount);
-      if (income > expenses && income > 0) {
-        newlyUnlocked.add('debt_free');
+    for (final entry in checks.entries) {
+      if (!alreadyUnlocked.contains(entry.key) && entry.value()) {
+        newlyUnlocked.add(entry.key);
       }
     }
 

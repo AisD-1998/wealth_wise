@@ -50,42 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final financeProvider = Provider.of<FinanceProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: RichText(
-          text: TextSpan(
-            style: theme.textTheme.titleLarge,
-            children: [
-              const TextSpan(text: 'Wealth'),
-              TextSpan(
-                text: 'Wise',
-                style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          if (authProvider.user != null)
-            IconButton(
-              icon: const Icon(Icons.person_outline),
-              tooltip: 'Profile',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ProfileScreen()),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsScreen()),
-            ),
-          ),
-        ],
-      ),
+      appBar: _buildDashboardAppBar(theme, authProvider),
       body: RefreshIndicator(
         color: theme.colorScheme.primary,
         onRefresh: () async {
@@ -106,185 +71,201 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 16.0),
             _buildBalanceCard(context, financeProvider),
             const SizedBox(height: 24.0),
-
-            // Quick Actions Section
-            Text(
-              'Quick Actions',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16.0),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.add_circle_outline,
-                    title: 'Add Expense',
-                    onTap: () =>
-                        _showTransactionForm(context, TransactionType.expense),
-                    color: theme.colorScheme.errorContainer,
-                    iconColor: theme.colorScheme.error,
-                  ),
-                ),
-                const SizedBox(width: 12.0),
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    icon: Icons.add_circle_outline,
-                    title: 'Add Income',
-                    onTap: () =>
-                        _showTransactionForm(context, TransactionType.income),
-                    color: theme.colorScheme.primaryContainer,
-                    iconColor: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-
+            _buildQuickActionsSection(theme),
             const SizedBox(height: 24.0),
-
-            // Recent Transactions & Insights
-            Row(
-              children: [
-                Text(
-                  'Recent Transactions',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const TransactionsScreen()),
-                  ),
-                  child: const Text('See All'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8.0),
-            if (financeProvider.transactions.isEmpty)
-              _buildEmptyState(
-                context,
-                'No recent transactions',
-                'Your recent transactions will appear here',
-                Icons.receipt_long_outlined,
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(16.0),
-                ),
-                child: ListView.separated(
-                  physics: const NeverScrollableScrollPhysics(),
-                  shrinkWrap: true,
-                  itemCount: financeProvider.transactions.length > 3
-                      ? 3
-                      : financeProvider.transactions.length,
-                  separatorBuilder: (context, index) => Divider(
-                    height: 1,
-                    indent: 16.0,
-                    endIndent: 16.0,
-                  ),
-                  itemBuilder: (context, index) {
-                    final transaction = financeProvider.transactions[index];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor:
-                            transaction.type == TransactionType.expense
-                                ? theme.colorScheme.errorContainer
-                                : theme.colorScheme.primaryContainer,
-                        child: Icon(
-                          transaction.type == TransactionType.expense
-                              ? Icons.arrow_downward
-                              : Icons.arrow_upward,
-                          color: transaction.type == TransactionType.expense
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                        ),
-                      ),
-                      title: Text(
-                        transaction.title,
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                      subtitle: Text(
-                        DateFormat('MMM dd, yyyy').format(transaction.date),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      trailing: Text(
-                        CurrencyFormatter.formatWithContext(
-                            context, transaction.amount),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: transaction.type == TransactionType.expense
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-
+            _buildRecentTransactionsSection(theme, financeProvider),
             const SizedBox(height: 24.0),
-
-            // Insights Section
-            Text(
-              'Financial Insights',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16.0),
-            if (authProvider.user == null)
-              _buildEmptyState(
-                context,
-                'Sign in to view insights',
-                'Create an account to track your finances',
-                Icons.insights_outlined,
-              )
-            else if (financeProvider.transactions.isEmpty)
-              _buildEmptyState(
-                context,
-                'No data available',
-                'Add transactions to see your financial insights',
-                Icons.insights_outlined,
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInsightCard(
-                      context,
-                      icon: Icons.savings_outlined,
-                      title: 'Savings Rate',
-                      value: financeProvider.totalIncome > 0
-                          ? '${((financeProvider.totalIncome - financeProvider.totalExpenses) / financeProvider.totalIncome * 100).toStringAsFixed(1)}%'
-                          : '0%',
-                      color: theme.colorScheme.tertiaryContainer,
-                      iconColor: theme.colorScheme.tertiary,
-                    ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: _buildInsightCard(
-                      context,
-                      icon: Icons.trending_up,
-                      title: 'Top Category',
-                      value: financeProvider.topExpenseCategory ?? 'N/A',
-                      color: theme.colorScheme.secondaryContainer,
-                      iconColor: theme.colorScheme.secondary,
-                    ),
-                  ),
-                ],
-              ),
+            _buildInsightsSection(theme, authProvider, financeProvider),
           ],
         ),
       ),
+    );
+  }
+
+  AppBar _buildDashboardAppBar(ThemeData theme, AuthProvider authProvider) {
+    return AppBar(
+      title: RichText(
+        text: TextSpan(
+          style: theme.textTheme.titleLarge,
+          children: [
+            const TextSpan(text: 'Wealth'),
+            TextSpan(
+              text: 'Wise',
+              style: TextStyle(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        if (authProvider.user != null)
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Profile',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfileScreen()),
+            ),
+          ),
+        IconButton(
+          icon: const Icon(Icons.settings_outlined),
+          tooltip: 'Settings',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingsScreen()),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActionsSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Actions',
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16.0),
+        Row(
+          children: [
+            Expanded(
+              child: _buildActionCard(context,
+                  icon: Icons.add_circle_outline, title: 'Add Expense',
+                  onTap: () => _showTransactionForm(context, TransactionType.expense),
+                  color: theme.colorScheme.errorContainer,
+                  iconColor: theme.colorScheme.error),
+            ),
+            const SizedBox(width: 12.0),
+            Expanded(
+              child: _buildActionCard(context,
+                  icon: Icons.add_circle_outline, title: 'Add Income',
+                  onTap: () => _showTransactionForm(context, TransactionType.income),
+                  color: theme.colorScheme.primaryContainer,
+                  iconColor: theme.colorScheme.primary),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentTransactionsSection(
+      ThemeData theme, FinanceProvider financeProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Recent Transactions',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const Spacer(),
+            TextButton(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => const TransactionsScreen())),
+              child: const Text('See All'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8.0),
+        if (financeProvider.transactions.isEmpty)
+          _buildEmptyState(context, 'No recent transactions',
+              'Your recent transactions will appear here', Icons.receipt_long_outlined)
+        else
+          _buildRecentTransactionsList(theme, financeProvider),
+      ],
+    );
+  }
+
+  Widget _buildRecentTransactionsList(
+      ThemeData theme, FinanceProvider financeProvider) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16.0),
+      ),
+      child: ListView.separated(
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        itemCount: financeProvider.transactions.length > 3
+            ? 3 : financeProvider.transactions.length,
+        separatorBuilder: (context, index) => const Divider(
+            height: 1, indent: 16.0, endIndent: 16.0),
+        itemBuilder: (context, index) {
+          final transaction = financeProvider.transactions[index];
+          final isExpense = transaction.type == TransactionType.expense;
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: isExpense
+                  ? theme.colorScheme.errorContainer
+                  : theme.colorScheme.primaryContainer,
+              child: Icon(
+                isExpense ? Icons.arrow_downward : Icons.arrow_upward,
+                color: isExpense ? theme.colorScheme.error : theme.colorScheme.primary,
+              ),
+            ),
+            title: Text(transaction.title, style: theme.textTheme.bodyLarge),
+            subtitle: Text(DateFormat('MMM dd, yyyy').format(transaction.date),
+                style: theme.textTheme.bodySmall),
+            trailing: Text(
+              CurrencyFormatter.formatWithContext(context, transaction.amount),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: isExpense ? theme.colorScheme.error : theme.colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInsightsSection(ThemeData theme, AuthProvider authProvider,
+      FinanceProvider financeProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Financial Insights',
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16.0),
+        _buildInsightsContent(theme, authProvider, financeProvider),
+      ],
+    );
+  }
+
+  Widget _buildInsightsContent(ThemeData theme, AuthProvider authProvider,
+      FinanceProvider financeProvider) {
+    if (authProvider.user == null) {
+      return _buildEmptyState(context, 'Sign in to view insights',
+          'Create an account to track your finances', Icons.insights_outlined);
+    }
+    if (financeProvider.transactions.isEmpty) {
+      return _buildEmptyState(context, 'No data available',
+          'Add transactions to see your financial insights', Icons.insights_outlined);
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: _buildInsightCard(context,
+              icon: Icons.savings_outlined, title: 'Savings Rate',
+              value: financeProvider.totalIncome > 0
+                  ? '${((financeProvider.totalIncome - financeProvider.totalExpenses) / financeProvider.totalIncome * 100).toStringAsFixed(1)}%'
+                  : '0%',
+              color: theme.colorScheme.tertiaryContainer,
+              iconColor: theme.colorScheme.tertiary),
+        ),
+        const SizedBox(width: 12.0),
+        Expanded(
+          child: _buildInsightCard(context,
+              icon: Icons.trending_up, title: 'Top Category',
+              value: financeProvider.topExpenseCategory ?? 'N/A',
+              color: theme.colorScheme.secondaryContainer,
+              iconColor: theme.colorScheme.secondary),
+        ),
+      ],
     );
   }
 

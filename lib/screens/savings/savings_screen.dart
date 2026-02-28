@@ -349,29 +349,9 @@ class _SavingsScreenState extends State<SavingsScreen> {
               children: [
                 // Remaining amount or completion message
                 Expanded(
-                  child: isCompleted
-                      ? Text(
-                          'Goal completed! 🎉',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        )
-                      : goal.targetDate != null
-                          ? Text(
-                              'Target date: ${_formatDate(goal.targetDate!)}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 153),
-                              ),
-                            )
-                          : Text(
-                              '${CurrencyFormatter.formatWithContext(context, remainingAmount)} remaining',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 153),
-                              ),
-                            ),
+                  child: _buildGoalStatusText(
+                    context, theme, goal, isCompleted, remainingAmount,
+                  ),
                 ),
 
                 // Action buttons
@@ -391,6 +371,38 @@ class _SavingsScreenState extends State<SavingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildGoalStatusText(
+    BuildContext context,
+    ThemeData theme,
+    SavingGoal goal,
+    bool isCompleted,
+    double remainingAmount,
+  ) {
+    if (isCompleted) {
+      return Text(
+        'Goal completed! \u{1F389}',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: Colors.green,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+    if (goal.targetDate != null) {
+      return Text(
+        'Target date: ${_formatDate(goal.targetDate!)}',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 153),
+        ),
+      );
+    }
+    return Text(
+      '${CurrencyFormatter.formatWithContext(context, remainingAmount)} remaining',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurface.withValues(alpha: 153),
       ),
     );
   }

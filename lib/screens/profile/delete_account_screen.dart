@@ -131,12 +131,11 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     }
   }
 
+  bool get _allConfirmationsChecked =>
+      _confirmDelete && _confirmUnderstand && _confirmDataDeletion;
+
   Future<void> _deleteAccount() async {
-    if (!_formKey.currentState!.validate() ||
-        !_confirmDelete ||
-        !_confirmUnderstand ||
-        !_confirmDataDeletion) {
-      // Show error for missing confirmations
+    if (!_formKey.currentState!.validate() || !_allConfirmationsChecked) {
       setState(() {
         _errorMessage =
             'Please confirm all checkboxes and provide your password.';
@@ -150,108 +149,15 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     });
 
     try {
-      // Get current user
-      final user = firebase_auth.FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        throw Exception('User not found');
-      }
-
-      // Get user's email
-      final email = user.email;
-      if (email == null || email.isEmpty) {
-        throw Exception('User email not found');
-      }
-
-      // Re-authenticate with password
-      final credential = firebase_auth.EmailAuthProvider.credential(
-        email: email,
-        password: _passwordController.text,
-      );
-      await user.reauthenticateWithCredential(credential);
-
-      // Delete user data from Firestore
-      final userId = user.uid;
-
-      // Delete transactions
-      final transactions = await _databaseService.getTransactions(userId);
-      for (final transaction in transactions) {
-        if (transaction.id != null && transaction.id!.isNotEmpty) {
-          await _databaseService.deleteTransaction(transaction.id!);
-        }
-      }
-
-      // Delete categories
-      final categories = await _databaseService.getCategories(userId);
-      for (final category in categories) {
-        if (category.id.isNotEmpty) {
-          await _databaseService.deleteCategory(category.id);
-        }
-      }
-
-      // Delete budgets
-      final budgets = await _databaseService.getBudgets(userId);
-      for (final budget in budgets) {
-        if (budget.id.isNotEmpty) {
-          await _databaseService.deleteBudget(budget.id);
-        }
-      }
-
-      // Delete saving goals
-      final savingGoals = await _databaseService.getSavingGoals(userId);
-      for (final goal in savingGoals) {
-        if (goal.id != null && goal.id!.isNotEmpty) {
-          final goalId = goal
-              .id!; // Extract as a local variable to emphasize non-nullability
-          await _databaseService.deleteSavingGoal(goalId);
-        }
-      }
-
-      // Delete user document - update user field to mark as deleted
-      // Since DatabaseService doesn't have a deleteUserData method,
-      // we'll mark the user as deleted instead
-      final userData = await _databaseService.getUserData(userId);
-      if (userData != null) {
-        await _databaseService.updateUserData(userData.copyWith(
-          displayName: "DELETED_USER",
-          email: "deleted_$userId@deleted.com",
-          photoUrl: null,
-          phoneNumber: null,
-        ));
-      }
-
-      // Finally, delete the Firebase Auth account
+      final user = await _reauthenticateUser();
+      await _deleteAllUserData(user.uid);
       await user.delete();
 
-      // Clear user from auth provider
       if (!mounted) return;
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      authProvider.clearUser();
-
-      // Show success message and navigate to login
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Your account has been deleted')),
-      );
-
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-        (route) => false,
-      );
+      _navigateAfterDeletion();
     } on firebase_auth.FirebaseAuthException catch (e) {
       setState(() {
-        switch (e.code) {
-          case 'wrong-password':
-            _errorMessage = 'Password is incorrect.';
-            break;
-          case 'too-many-requests':
-            _errorMessage = 'Too many attempts. Please try again later.';
-            break;
-          case 'requires-recent-login':
-            _errorMessage =
-                'Please sign out and sign in again before deleting your account.';
-            break;
-          default:
-            _errorMessage = 'Error: ${e.message}';
-        }
+        _errorMessage = _firebaseAuthErrorMessage(e);
       });
     } catch (e) {
       setState(() {
@@ -264,6 +170,106 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
         });
       }
     }
+  }
+
+  /// Re-authenticate the current user with their password.
+  /// Throws if the user or email is missing.
+  Future<firebase_auth.User> _reauthenticateUser() async {
+    final user = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User not found');
+
+    final email = user.email;
+    if (email == null || email.isEmpty) throw Exception('User email not found');
+
+    final credential = firebase_auth.EmailAuthProvider.credential(
+      email: email,
+      password: _passwordController.text,
+    );
+    await user.reauthenticateWithCredential(credential);
+    return user;
+  }
+
+  /// Delete all Firestore data for the given user and mark the user record
+  /// as deleted.
+  Future<void> _deleteAllUserData(String userId) async {
+    await _deleteUserTransactions(userId);
+    await _deleteUserCategories(userId);
+    await _deleteUserBudgets(userId);
+    await _deleteUserSavingGoals(userId);
+    await _markUserAsDeleted(userId);
+  }
+
+  Future<void> _deleteUserTransactions(String userId) async {
+    final transactions = await _databaseService.getTransactions(userId);
+    for (final transaction in transactions) {
+      if (transaction.id != null && transaction.id!.isNotEmpty) {
+        await _databaseService.deleteTransaction(transaction.id!);
+      }
+    }
+  }
+
+  Future<void> _deleteUserCategories(String userId) async {
+    final categories = await _databaseService.getCategories(userId);
+    for (final category in categories) {
+      if (category.id.isNotEmpty) {
+        await _databaseService.deleteCategory(category.id);
+      }
+    }
+  }
+
+  Future<void> _deleteUserBudgets(String userId) async {
+    final budgets = await _databaseService.getBudgets(userId);
+    for (final budget in budgets) {
+      if (budget.id.isNotEmpty) {
+        await _databaseService.deleteBudget(budget.id);
+      }
+    }
+  }
+
+  Future<void> _deleteUserSavingGoals(String userId) async {
+    final savingGoals = await _databaseService.getSavingGoals(userId);
+    for (final goal in savingGoals) {
+      if (goal.id != null && goal.id!.isNotEmpty) {
+        await _databaseService.deleteSavingGoal(goal.id!);
+      }
+    }
+  }
+
+  Future<void> _markUserAsDeleted(String userId) async {
+    final userData = await _databaseService.getUserData(userId);
+    if (userData != null) {
+      await _databaseService.updateUserData(userData.copyWith(
+        displayName: "DELETED_USER",
+        email: "deleted_$userId@deleted.com",
+        photoUrl: null,
+        phoneNumber: null,
+      ));
+    }
+  }
+
+  /// Map a FirebaseAuthException to a user-friendly message.
+  String _firebaseAuthErrorMessage(firebase_auth.FirebaseAuthException e) {
+    const errorMessages = {
+      'wrong-password': 'Password is incorrect.',
+      'too-many-requests': 'Too many attempts. Please try again later.',
+      'requires-recent-login':
+          'Please sign out and sign in again before deleting your account.',
+    };
+    return errorMessages[e.code] ?? 'Error: ${e.message}';
+  }
+
+  void _navigateAfterDeletion() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.clearUser();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Your account has been deleted')),
+    );
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
   }
 
   @override

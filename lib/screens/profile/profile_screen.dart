@@ -10,6 +10,7 @@ import 'package:wealth_wise/screens/auth/login_screen.dart';
 import 'package:wealth_wise/screens/profile/edit_profile_screen.dart';
 import 'package:wealth_wise/screens/profile/change_password_screen.dart';
 import 'package:wealth_wise/screens/profile/delete_account_screen.dart';
+import 'package:wealth_wise/constants/app_strings.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -19,6 +20,13 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  String _userInitial(User user) {
+    if (user.displayName != null && user.displayName!.isNotEmpty) {
+      return user.displayName![0].toUpperCase();
+    }
+    return 'U';
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -115,10 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         : null,
                     child: user.photoUrl == null
                         ? Text(
-                            user.displayName != null &&
-                                    user.displayName!.isNotEmpty
-                                ? user.displayName![0].toUpperCase()
-                                : 'U',
+                            _userInitial(user),
                             style: TextStyle(
                               fontSize: 40,
                               fontWeight: FontWeight.bold,
@@ -343,7 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           OutlinedButton.icon(
             onPressed: () => _handleSignOut(context),
             icon: const Icon(Icons.logout),
-            label: const Text('Sign Out'),
+            label: const Text(AppStrings.kSignOut),
             style: OutlinedButton.styleFrom(
               foregroundColor: theme.colorScheme.error,
             ),
@@ -425,7 +430,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Icon(Icons.local_fire_department,
+                  const Icon(Icons.local_fire_department,
                       color: Colors.orange, size: 32),
                   const SizedBox(width: 12),
                   Column(
@@ -639,7 +644,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Sign Out'),
+            title: const Text(AppStrings.kSignOut),
             content: const Text('Are you sure you want to sign out?'),
             actions: [
               TextButton(
@@ -648,7 +653,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Sign Out'),
+                child: const Text(AppStrings.kSignOut),
               ),
             ],
           ),

@@ -15,6 +15,8 @@ class AddInvestmentScreen extends StatefulWidget {
 }
 
 class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
+  static const _kInvalidNumber = 'Invalid number';
+
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _purchasePriceController;
@@ -107,6 +109,136 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
     }
   }
 
+  Widget _buildNameField() {
+    return TextFormField(
+      controller: _nameController,
+      decoration: const InputDecoration(
+        labelText: 'Name',
+        hintText: 'e.g. AAPL, Bitcoin, Vanguard S&P 500',
+        prefixIcon: Icon(Icons.label),
+      ),
+      validator: (v) => v == null || v.isEmpty ? 'Enter a name' : null,
+    );
+  }
+
+  Widget _buildTypeDropdown() {
+    return DropdownButtonFormField<InvestmentType>(
+      initialValue: _type,
+      decoration: const InputDecoration(
+        labelText: 'Type',
+        prefixIcon: Icon(Icons.category),
+      ),
+      items: InvestmentType.values
+          .map((t) => DropdownMenuItem(value: t, child: Text(t.label)))
+          .toList(),
+      onChanged: (v) {
+        if (v != null) setState(() => _type = v);
+      },
+    );
+  }
+
+  Widget _buildPurchasePriceField() {
+    return TextFormField(
+      controller: _purchasePriceController,
+      decoration: const InputDecoration(
+        labelText: 'Purchase Price (per unit)',
+        prefixIcon: Icon(Icons.attach_money),
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Enter purchase price';
+        if (double.tryParse(v) == null) return _kInvalidNumber;
+        if (double.parse(v) <= 0) return 'Must be > 0';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildCurrentValueField() {
+    return TextFormField(
+      controller: _currentValueController,
+      decoration: const InputDecoration(
+        labelText: 'Current Value (per unit)',
+        prefixIcon: Icon(Icons.price_change),
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Enter current value';
+        if (double.tryParse(v) == null) return _kInvalidNumber;
+        if (double.parse(v) < 0) return 'Must be >= 0';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildQuantityField() {
+    return TextFormField(
+      controller: _quantityController,
+      decoration: const InputDecoration(
+        labelText: 'Quantity',
+        prefixIcon: Icon(Icons.numbers),
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Enter quantity';
+        if (double.tryParse(v) == null) return _kInvalidNumber;
+        if (double.parse(v) <= 0) return 'Must be > 0';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildDatePicker() {
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: _purchaseDate,
+          firstDate: DateTime(2000),
+          lastDate: DateTime.now(),
+        );
+        if (picked != null) setState(() => _purchaseDate = picked);
+      },
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Purchase Date',
+          prefixIcon: Icon(Icons.calendar_today),
+        ),
+        child: Text(DateFormat('MMM dd, yyyy').format(_purchaseDate)),
+      ),
+    );
+  }
+
+  Widget _buildNoteField() {
+    return TextFormField(
+      controller: _noteController,
+      decoration: const InputDecoration(
+        labelText: 'Note (Optional)',
+        prefixIcon: Icon(Icons.note),
+      ),
+      maxLines: 2,
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: _isLoading ? null : _save,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: _isLoading
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(_isEditing ? 'Update Investment' : 'Add Investment'),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,127 +251,21 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
           key: _formKey,
           child: Column(
             children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  hintText: 'e.g. AAPL, Bitcoin, Vanguard S&P 500',
-                  prefixIcon: Icon(Icons.label),
-                ),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Enter a name' : null,
-              ),
+              _buildNameField(),
               const SizedBox(height: 16),
-              DropdownButtonFormField<InvestmentType>(
-                initialValue: _type,
-                decoration: const InputDecoration(
-                  labelText: 'Type',
-                  prefixIcon: Icon(Icons.category),
-                ),
-                items: InvestmentType.values
-                    .map((t) =>
-                        DropdownMenuItem(value: t, child: Text(t.label)))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => _type = v);
-                },
-              ),
+              _buildTypeDropdown(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _purchasePriceController,
-                decoration: const InputDecoration(
-                  labelText: 'Purchase Price (per unit)',
-                  prefixIcon: Icon(Icons.attach_money),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Enter purchase price';
-                  if (double.tryParse(v) == null) return 'Invalid number';
-                  if (double.parse(v) <= 0) return 'Must be > 0';
-                  return null;
-                },
-              ),
+              _buildPurchasePriceField(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _currentValueController,
-                decoration: const InputDecoration(
-                  labelText: 'Current Value (per unit)',
-                  prefixIcon: Icon(Icons.price_change),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Enter current value';
-                  if (double.tryParse(v) == null) return 'Invalid number';
-                  if (double.parse(v) < 0) return 'Must be >= 0';
-                  return null;
-                },
-              ),
+              _buildCurrentValueField(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _quantityController,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity',
-                  prefixIcon: Icon(Icons.numbers),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Enter quantity';
-                  if (double.tryParse(v) == null) return 'Invalid number';
-                  if (double.parse(v) <= 0) return 'Must be > 0';
-                  return null;
-                },
-              ),
+              _buildQuantityField(),
               const SizedBox(height: 16),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _purchaseDate,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime.now(),
-                  );
-                  if (picked != null) setState(() => _purchaseDate = picked);
-                },
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Purchase Date',
-                    prefixIcon: Icon(Icons.calendar_today),
-                  ),
-                  child:
-                      Text(DateFormat('MMM dd, yyyy').format(_purchaseDate)),
-                ),
-              ),
+              _buildDatePicker(),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _noteController,
-                decoration: const InputDecoration(
-                  labelText: 'Note (Optional)',
-                  prefixIcon: Icon(Icons.note),
-                ),
-                maxLines: 2,
-              ),
+              _buildNoteField(),
               const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isLoading ? null : _save,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(_isEditing
-                            ? 'Update Investment'
-                            : 'Add Investment'),
-                  ),
-                ),
-              ),
+              _buildSubmitButton(),
             ],
           ),
         ),

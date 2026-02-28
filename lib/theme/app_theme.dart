@@ -467,7 +467,7 @@ class AppTheme {
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
-              color: Color(0xFFEF5350).withValues(alpha: 0.8), width: 1),
+              color: const Color(0xFFEF5350).withValues(alpha: 0.8), width: 1),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),

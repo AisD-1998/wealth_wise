@@ -160,10 +160,43 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  DecorationImage? _profileDecorationImage() {
+    if (_selectedImage != null) {
+      return DecorationImage(
+        image: FileImage(_selectedImage!),
+        fit: BoxFit.cover,
+      );
+    }
+    if (_photoUrl != null) {
+      return DecorationImage(
+        image: NetworkImage(_photoUrl!),
+        fit: BoxFit.cover,
+      );
+    }
+    return null;
+  }
+
+  Widget? _profilePlaceholder() {
+    if (_photoUrl != null || _selectedImage != null) {
+      return null;
+    }
+    final initial = widget.user.displayName != null &&
+            widget.user.displayName!.isNotEmpty
+        ? widget.user.displayName![0].toUpperCase()
+        : 'U';
+    return Center(
+      child: Text(
+        initial,
+        style: const TextStyle(
+          fontSize: 48,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit Profile'),
@@ -186,134 +219,116 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Profile picture
-              GestureDetector(
-                onTap: _pickImage,
-                child: Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        image: _selectedImage != null
-                            ? DecorationImage(
-                                image: FileImage(_selectedImage!),
-                                fit: BoxFit.cover,
-                              )
-                            : _photoUrl != null
-                                ? DecorationImage(
-                                    image: NetworkImage(_photoUrl!),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
-                      ),
-                      child: _photoUrl == null && _selectedImage == null
-                          ? Center(
-                              child: Text(
-                                widget.user.displayName != null &&
-                                        widget.user.displayName!.isNotEmpty
-                                    ? widget.user.displayName![0].toUpperCase()
-                                    : 'U',
-                                style: const TextStyle(
-                                  fontSize: 48,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            )
-                          : null,
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
+              _buildProfilePicture(),
               const SizedBox(height: 32),
-
-              // Display name field
-              TextFormField(
-                controller: _displayNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Display Name',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter your name';
-                  }
-                  return null;
-                },
-              ),
-
+              _buildDisplayNameField(),
               const SizedBox(height: 16),
-
-              // Email field (readonly)
-              TextFormField(
-                controller: _emailController,
-                readOnly: true,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  helperText: 'Email cannot be changed',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
-                ),
-              ),
-
+              _buildEmailField(),
               const SizedBox(height: 16),
-
-              // Phone field
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone),
-                ),
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value != null && value.isNotEmpty) {
-                    // Simple validation for now
-                    if (value.length < 10) {
-                      return 'Please enter a valid phone number';
-                    }
-                  }
-                  return null;
-                },
-              ),
-
+              _buildPhoneField(),
               const SizedBox(height: 32),
-
-              // Save button
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isUploading ? null : _saveProfile,
-                  child: _isUploading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(color: Colors.white),
-                        )
-                      : const Text('Save Profile'),
-                ),
-              ),
+              _buildProfileSaveButton(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildProfilePicture() {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: _pickImage,
+      child: Stack(
+        alignment: Alignment.bottomRight,
+        children: [
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              image: _profileDecorationImage(),
+            ),
+            child: _profilePlaceholder(),
+          ),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.camera_alt,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDisplayNameField() {
+    return TextFormField(
+      controller: _displayNameController,
+      decoration: const InputDecoration(
+        labelText: 'Display Name',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.person),
+      ),
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Please enter your name';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildEmailField() {
+    return TextFormField(
+      controller: _emailController,
+      readOnly: true,
+      decoration: const InputDecoration(
+        labelText: 'Email',
+        helperText: 'Email cannot be changed',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.email),
+      ),
+    );
+  }
+
+  Widget _buildPhoneField() {
+    return TextFormField(
+      controller: _phoneController,
+      decoration: const InputDecoration(
+        labelText: 'Phone Number',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.phone),
+      ),
+      keyboardType: TextInputType.phone,
+      validator: (value) {
+        if (value != null && value.isNotEmpty && value.length < 10) {
+          return 'Please enter a valid phone number';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildProfileSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: _isUploading ? null : _saveProfile,
+        child: _isUploading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(color: Colors.white),
+              )
+            : const Text('Save Profile'),
       ),
     );
   }

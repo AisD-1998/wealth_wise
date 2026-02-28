@@ -87,6 +87,12 @@ class BillsScreen extends StatelessWidget {
     );
   }
 
+  IconData _billIcon(BillReminder bill) {
+    if (bill.isPaid) return Icons.check_circle;
+    if (bill.isOverdue) return Icons.warning_amber_rounded;
+    return Icons.receipt_long;
+  }
+
   Widget _sectionHeader(BuildContext context, String title, Color color) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -146,11 +152,7 @@ class BillsScreen extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: statusColor.withValues(alpha: 30),
           child: Icon(
-            bill.isPaid
-                ? Icons.check_circle
-                : bill.isOverdue
-                    ? Icons.warning_amber_rounded
-                    : Icons.receipt_long,
+            _billIcon(bill),
             color: statusColor,
             size: 22,
           ),
@@ -243,65 +245,85 @@ class BillsScreen extends StatelessWidget {
 
   void _handleMenuAction(BuildContext context, String action,
       BillReminder bill, FinanceProvider provider) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-
     switch (action) {
       case 'pay':
-        final success = await provider.markBillPaid(bill);
-        scaffoldMessenger.showSnackBar(SnackBar(
-          content: Text(success
-              ? '${bill.title} marked as paid'
-              : 'Failed to mark as paid'),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ));
+        _handlePayAction(context, bill, provider);
         break;
       case 'pay_expense':
-        final success =
-            await provider.markBillPaid(bill, createTransaction: true);
-        scaffoldMessenger.showSnackBar(SnackBar(
-          content: Text(success
-              ? '${bill.title} paid & expense logged'
-              : 'Failed to process payment'),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ));
+        _handlePayExpenseAction(context, bill, provider);
         break;
       case 'edit':
-        if (context.mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => CreateBillScreen(existingBill: bill)),
-          );
-        }
+        _handleEditAction(context, bill);
         break;
       case 'delete':
-        final confirm = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Delete Bill Reminder'),
-            content: Text('Delete "${bill.title}"? This cannot be undone.'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel')),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child:
-                    const Text('Delete', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          ),
-        );
-        if (confirm == true && bill.id != null) {
-          final success = await provider.deleteBillReminder(bill.id!);
-          scaffoldMessenger.showSnackBar(SnackBar(
-            content: Text(success
-                ? '${bill.title} deleted'
-                : 'Failed to delete'),
-            backgroundColor: success ? Colors.green : Colors.red,
-          ));
-        }
+        _handleDeleteAction(context, bill, provider);
         break;
+    }
+  }
+
+  void _handlePayAction(BuildContext context, BillReminder bill,
+      FinanceProvider provider) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final success = await provider.markBillPaid(bill);
+    scaffoldMessenger.showSnackBar(SnackBar(
+      content: Text(success
+          ? '${bill.title} marked as paid'
+          : 'Failed to mark as paid'),
+      backgroundColor: success ? Colors.green : Colors.red,
+    ));
+  }
+
+  void _handlePayExpenseAction(BuildContext context, BillReminder bill,
+      FinanceProvider provider) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final success =
+        await provider.markBillPaid(bill, createTransaction: true);
+    scaffoldMessenger.showSnackBar(SnackBar(
+      content: Text(success
+          ? '${bill.title} paid & expense logged'
+          : 'Failed to process payment'),
+      backgroundColor: success ? Colors.green : Colors.red,
+    ));
+  }
+
+  void _handleEditAction(BuildContext context, BillReminder bill) {
+    if (context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => CreateBillScreen(existingBill: bill)),
+      );
+    }
+  }
+
+  void _handleDeleteAction(BuildContext context, BillReminder bill,
+      FinanceProvider provider) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Bill Reminder'),
+        content: Text('Delete "${bill.title}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child:
+                const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && bill.id != null) {
+      final success = await provider.deleteBillReminder(bill.id!);
+      scaffoldMessenger.showSnackBar(SnackBar(
+        content: Text(success
+            ? '${bill.title} deleted'
+            : 'Failed to delete'),
+        backgroundColor: success ? Colors.green : Colors.red,
+      ));
     }
   }
 }

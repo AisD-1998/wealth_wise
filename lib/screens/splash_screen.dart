@@ -19,12 +19,12 @@ class SplashScreen extends StatelessWidget {
             ],
           ),
         ),
-        child: Center(
+        child: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Logo or app name
-              const Text(
+              Text(
                 'WealthWise',
                 style: TextStyle(
                   fontSize: 42,
@@ -39,18 +39,18 @@ class SplashScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 40),
+              SizedBox(height: 40),
               // Custom loading indicator
-              const DollarSpinner(
+              DollarSpinner(
                 size: 80.0,
                 primaryColor: Colors.white,
                 secondaryColor: AppTheme.accentMint,
                 strokeWidth: 3.0,
                 message: '',
               ),
-              const SizedBox(height: 40),
+              SizedBox(height: 40),
               // Loading text
-              const Text(
+              Text(
                 'Smart Finance Management',
                 style: TextStyle(
                   color: Colors.white,

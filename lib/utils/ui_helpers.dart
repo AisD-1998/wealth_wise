@@ -209,6 +209,68 @@ class UIHelpers {
     }
   }
 
+  /// Default expense categories used when the user has none or on error.
+  static List<String> _defaultExpenseCategories({bool full = true}) {
+    if (full) {
+      return [
+        'Food & Groceries',
+        'Transportation',
+        'Entertainment',
+        'Utilities',
+        'Housing',
+        'Health',
+        'Shopping',
+        'Education',
+        'Personal Care',
+        'Other',
+      ];
+    }
+    return [
+      'Food & Groceries',
+      'Transportation',
+      'Entertainment',
+      'Utilities',
+      'Housing',
+      'Health',
+      'Other',
+    ];
+  }
+
+  /// Default income categories used when the user has none or on error.
+  static List<String> _defaultIncomeCategories({bool full = true}) {
+    if (full) {
+      return [
+        'Salary',
+        'Business',
+        'Investments',
+        'Gifts',
+        'Allowance',
+        AppStrings.kOtherIncome,
+      ];
+    }
+    return ['Salary', 'Business', 'Investments', AppStrings.kOtherIncome];
+  }
+
+  /// The "Other" label for the given transaction type.
+  static String _otherLabel(app_model.TransactionType type) =>
+      type == app_model.TransactionType.expense
+          ? 'Other'
+          : AppStrings.kOtherIncome;
+
+  /// Extract unique category names matching [categoryType] from the provider.
+  static List<String> _uniqueNamesFromProvider(
+      CategoryProvider provider, CategoryType categoryType,
+      app_model.TransactionType transactionType) {
+    final Set<String> names = {};
+    for (final category in provider.categories) {
+      if (category.type == categoryType && category.name.isNotEmpty) {
+        names.add(category.name);
+      }
+    }
+    names.add(_otherLabel(transactionType));
+    return names.toList();
+  }
+
   /// Helper method to get categories for a specific transaction type
   static Future<List<String>> getCategoriesForType(
       BuildContext context, app_model.TransactionType type) async {
@@ -216,83 +278,27 @@ class UIHelpers {
         Provider.of<CategoryProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (authProvider.user == null) {
-      return [];
-    }
+    if (authProvider.user == null) return [];
 
-    // Load categories outside of build
+    final isExpense = type == app_model.TransactionType.expense;
+    final categoryType =
+        isExpense ? CategoryType.expense : CategoryType.income;
+
     try {
       await categoryProvider.loadCategoriesByUser(authProvider.user!.uid);
 
-      // Map transaction type to category type
-      final categoryType = type == app_model.TransactionType.expense
-          ? CategoryType.expense
-          : CategoryType.income;
-
-      // If no categories found for the user, return default categories
       if (categoryProvider.categories.isEmpty) {
-        if (type == app_model.TransactionType.expense) {
-          return [
-            'Food & Groceries',
-            'Transportation',
-            'Entertainment',
-            'Utilities',
-            'Housing',
-            'Health',
-            'Shopping',
-            'Education',
-            'Personal Care',
-            'Other'
-          ];
-        } else {
-          return [
-            'Salary',
-            'Business',
-            'Investments',
-            'Gifts',
-            'Allowance',
-            AppStrings.kOtherIncome
-          ];
-        }
+        return isExpense
+            ? _defaultExpenseCategories()
+            : _defaultIncomeCategories();
       }
 
-      // Extract category names and ensure they're unique - filter by type
-      final Set<String> uniqueCategoryNames = {};
-
-      for (var category in categoryProvider.categories) {
-        // Only include categories of the matching type
-        if (category.type == categoryType) {
-          // Safely access name property
-          final name = category.name;
-          if (name.isNotEmpty) {
-            uniqueCategoryNames.add(name);
-          }
-        }
-      }
-
-      // Add 'Other' if not already in the list
-      if (type == app_model.TransactionType.expense) {
-        uniqueCategoryNames.add('Other');
-      } else {
-        uniqueCategoryNames.add(AppStrings.kOtherIncome);
-      }
-
-      return uniqueCategoryNames.toList();
+      return _uniqueNamesFromProvider(
+          categoryProvider, categoryType, type);
     } catch (e) {
-      // In case of error, return basic categories
-      if (type == app_model.TransactionType.expense) {
-        return [
-          'Food & Groceries',
-          'Transportation',
-          'Entertainment',
-          'Utilities',
-          'Housing',
-          'Health',
-          'Other'
-        ];
-      } else {
-        return ['Salary', 'Business', 'Investments', AppStrings.kOtherIncome];
-      }
+      return isExpense
+          ? _defaultExpenseCategories(full: false)
+          : _defaultIncomeCategories(full: false);
     }
   }
 }

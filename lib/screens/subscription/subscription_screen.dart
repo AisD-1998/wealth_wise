@@ -544,11 +544,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           color: cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected
-                ? AppTheme.primaryGreen
-                : isDarkMode
-                    ? Colors.grey.shade800
-                    : Colors.grey.shade300,
+            color: _planCardBorderColor(isSelected, isDarkMode),
             width: isSelected ? 2.0 : 1.0,
           ),
         ),
@@ -633,6 +629,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ),
       ),
     );
+  }
+
+  Color _planCardBorderColor(bool isSelected, bool isDarkMode) {
+    if (isSelected) return AppTheme.primaryGreen;
+    if (isDarkMode) return Colors.grey.shade800;
+    return Colors.grey.shade300;
   }
 
   // Build the features list

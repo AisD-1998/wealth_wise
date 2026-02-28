@@ -101,35 +101,54 @@ class InsightsService {
       SavingGoal goal, List<app_model.Transaction> transactions) {
     if (goal.isCompleted) return 0;
 
-    // Find all contributions to this goal
+    final stats = _goalContributionStats(goal, transactions);
+    if (stats == null) return null;
+
+    final monthlyRate = _monthlyContributionRate(stats);
+    if (monthlyRate == null) return null;
+
+    final remaining = goal.targetAmount - goal.currentAmount;
+    return (remaining / monthlyRate).ceil();
+  }
+
+  /// Aggregate contribution stats for a goal from income transactions.
+  static _ContributionStats? _goalContributionStats(
+      SavingGoal goal, List<app_model.Transaction> transactions) {
     double totalContributed = 0;
     DateTime? firstContribution;
     DateTime? lastContribution;
 
     for (final t in transactions) {
-      if (t.goalId == goal.id &&
-          t.type == app_model.TransactionType.income) {
-        totalContributed += t.amount * (t.contributionPercentage ?? 100) / 100;
-        if (firstContribution == null || t.date.isBefore(firstContribution)) {
-          firstContribution = t.date;
-        }
-        if (lastContribution == null || t.date.isAfter(lastContribution)) {
-          lastContribution = t.date;
-        }
+      if (t.goalId != goal.id) continue;
+      if (t.type != app_model.TransactionType.income) continue;
+
+      totalContributed += t.amount * (t.contributionPercentage ?? 100) / 100;
+      if (firstContribution == null || t.date.isBefore(firstContribution)) {
+        firstContribution = t.date;
+      }
+      if (lastContribution == null || t.date.isAfter(lastContribution)) {
+        lastContribution = t.date;
       }
     }
 
     if (totalContributed <= 0 || firstContribution == null) return null;
 
-    // Calculate months of contribution history
-    final months = lastContribution!.difference(firstContribution).inDays / 30;
+    return _ContributionStats(
+      totalContributed: totalContributed,
+      firstContribution: firstContribution,
+      lastContribution: lastContribution!,
+    );
+  }
+
+  /// Calculate the monthly contribution rate from stats.
+  /// Returns null if history is too short or rate is non-positive.
+  static double? _monthlyContributionRate(_ContributionStats stats) {
+    final months =
+        stats.lastContribution.difference(stats.firstContribution).inDays / 30;
     if (months < 0.5) return null; // Not enough history
 
-    final monthlyRate = totalContributed / months;
-    if (monthlyRate <= 0) return null;
-
-    final remaining = goal.targetAmount - goal.currentAmount;
-    return (remaining / monthlyRate).ceil();
+    final rate = stats.totalContributed / months;
+    return rate > 0 ? rate : null;
   }
 
   /// Get spending by weekday (0=Monday, 6=Sunday).
@@ -213,4 +232,17 @@ class MonthlyTotal {
 
   double get net => income - expenses;
   double get savingsRate => income > 0 ? (net / income) * 100 : 0;
+}
+
+/// Internal data holder for goal contribution aggregation.
+class _ContributionStats {
+  final double totalContributed;
+  final DateTime firstContribution;
+  final DateTime lastContribution;
+
+  const _ContributionStats({
+    required this.totalContributed,
+    required this.firstContribution,
+    required this.lastContribution,
+  });
 }

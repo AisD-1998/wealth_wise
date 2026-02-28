@@ -481,7 +481,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                 MaterialPageRoute(
                     builder: (context) => const TransactionsScreen()),
               ),
-              child: Text(AppStrings.kSeeAll),
+              child: const Text(AppStrings.kSeeAll),
             ),
           ],
         ),
@@ -556,6 +556,9 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
         _showTransactionOptions(context, transaction);
       },
       onLongPress: () async {
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        final financeProvider =
+            Provider.of<FinanceProvider>(context, listen: false);
         final confirm = await UIHelpers.showConfirmationDialog(
           context: context,
           title: AppStrings.kDeleteTransaction,
@@ -564,8 +567,9 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
           cancelText: 'Cancel',
         );
 
-        if (confirm && context.mounted) {
-          _deleteTransaction(transaction, context);
+        if (confirm && mounted) {
+          _deleteTransactionWithRefs(
+              transaction, scaffoldMessenger, financeProvider);
         }
       },
     );
@@ -590,7 +594,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                   MaterialPageRoute(
                       builder: (context) => const PremiumAnalyticsScreen()),
                 ),
-                child: Text(AppStrings.kSeeAll),
+                child: const Text(AppStrings.kSeeAll),
               );
             }
             return const SizedBox.shrink();
@@ -738,8 +742,8 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
-                title: Text(AppStrings.kDeleteTransaction,
-                    style: const TextStyle(color: Colors.red)),
+                title: const Text(AppStrings.kDeleteTransaction,
+                    style: TextStyle(color: Colors.red)),
                 onTap: () async {
                   Navigator.pop(context);
                   final confirm = await UIHelpers.showConfirmationDialog(
@@ -780,170 +784,192 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Title and amount row
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      transaction.title,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                  ),
-                  Text(
-                    isIncome
-                        ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
-                        : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: isIncome ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+              _buildDetailsTitleRow(context, theme, transaction, isIncome),
               const SizedBox(height: 16),
-
-              // Details list
-              DetailItem(
-                icon: Icons.calendar_today,
-                title: 'Date',
-                value: DateFormat('MMMM d, yyyy').format(transaction.date),
-              ),
-              DetailItem(
-                icon: Icons.access_time,
-                title: 'Time',
-                value: DateFormat('h:mm a').format(transaction.date),
-              ),
-              DetailItem(
-                icon: Icons.category,
-                title: 'Category',
-                value: transaction.category ?? 'Uncategorized',
-              ),
-              if (transaction.note != null && transaction.note!.isNotEmpty)
-                DetailItem(
-                  icon: Icons.notes,
-                  title: 'Notes',
-                  value: transaction.note!,
-                ),
-
-              // Show saving goal info for income transactions with goals
+              ..._buildDetailsInfoItems(transaction),
               if (transaction.contributesToGoal && transaction.goalId != null)
-                FutureBuilder<SavingGoal?>(
-                  future: Provider.of<FinanceProvider>(context, listen: false)
-                      .getSavingGoalById(transaction.goalId!),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: Center(
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: LoadingAnimationUtils.smallDollarSpinner(
-                                size: 20),
-                          ),
-                        ),
-                      );
-                    }
-
-                    final goal = snapshot.data;
-                    if (goal == null) {
-                      return const DetailItem(
-                        icon: Icons.savings,
-                        title: 'Saving Goal',
-                        value: 'Unknown or deleted goal',
-                      );
-                    }
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        DetailItem(
-                          icon: Icons.savings,
-                          title: 'Saving Goal',
-                          value: goal.title,
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 42.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Progress: ${CurrencyFormatter.formatWithContext(context, goal.currentAmount)} / ${CurrencyFormatter.formatWithContext(context, goal.targetAmount)}',
-                                style: TextStyle(
-                                  color: goal.isCompleted
-                                      ? Colors.green
-                                      : Colors.grey[600],
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              LinearProgressIndicator(
-                                value: (goal.currentAmount / goal.targetAmount)
-                                    .clamp(0.0, 1.0),
-                                backgroundColor: Colors.grey[200],
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  goal.isCompleted
-                                      ? Colors.green
-                                      : theme.colorScheme.primary,
-                                ),
-                                minHeight: 6,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                goal.isCompleted
-                                    ? 'Goal completed!'
-                                    : '${((goal.currentAmount / goal.targetAmount) * 100).toStringAsFixed(1)}% complete',
-                                style: TextStyle(
-                                  color: goal.isCompleted
-                                      ? Colors.green
-                                      : Colors.grey[600],
-                                  fontSize: 12,
-                                  fontWeight: goal.isCompleted
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-
+                _buildGoalProgressSection(context, theme, transaction),
               const SizedBox(height: 24),
-
-              // Action buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Edit'),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      UIHelpers.showTransactionForm(
-                        context,
-                        transaction.type,
-                        existingTransaction: transaction,
-                      );
-                    },
-                  ),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      _deleteTransaction(transaction, context);
-                    },
-                  ),
-                ],
-              ),
+              _buildDetailsActionButtons(context, transaction),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildDetailsTitleRow(
+    BuildContext context,
+    ThemeData theme,
+    Transaction transaction,
+    bool isIncome,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            transaction.title,
+            style: theme.textTheme.titleLarge,
+          ),
+        ),
+        Text(
+          isIncome
+              ? '+${CurrencyFormatter.formatWithContext(context, transaction.amount)}'
+              : '-${CurrencyFormatter.formatWithContext(context, transaction.amount)}',
+          style: theme.textTheme.titleLarge?.copyWith(
+            color: isIncome ? Colors.green : Colors.red,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildDetailsInfoItems(Transaction transaction) {
+    return [
+      DetailItem(
+        icon: Icons.calendar_today,
+        title: 'Date',
+        value: DateFormat('MMMM d, yyyy').format(transaction.date),
+      ),
+      DetailItem(
+        icon: Icons.access_time,
+        title: 'Time',
+        value: DateFormat('h:mm a').format(transaction.date),
+      ),
+      DetailItem(
+        icon: Icons.category,
+        title: 'Category',
+        value: transaction.category ?? 'Uncategorized',
+      ),
+      if (transaction.note != null && transaction.note!.isNotEmpty)
+        DetailItem(
+          icon: Icons.notes,
+          title: 'Notes',
+          value: transaction.note!,
+        ),
+    ];
+  }
+
+  Widget _buildGoalProgressSection(
+    BuildContext context,
+    ThemeData theme,
+    Transaction transaction,
+  ) {
+    return FutureBuilder<SavingGoal?>(
+      future: Provider.of<FinanceProvider>(context, listen: false)
+          .getSavingGoalById(transaction.goalId!),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: LoadingAnimationUtils.smallDollarSpinner(size: 20),
+              ),
+            ),
+          );
+        }
+
+        final goal = snapshot.data;
+        if (goal == null) {
+          return const DetailItem(
+            icon: Icons.savings,
+            title: 'Saving Goal',
+            value: 'Unknown or deleted goal',
+          );
+        }
+
+        return _buildGoalProgressDetails(context, theme, goal);
+      },
+    );
+  }
+
+  Widget _buildGoalProgressDetails(
+    BuildContext context,
+    ThemeData theme,
+    SavingGoal goal,
+  ) {
+    final progress = (goal.currentAmount / goal.targetAmount * 100);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DetailItem(
+          icon: Icons.savings,
+          title: 'Saving Goal',
+          value: goal.title,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 42.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Progress: ${CurrencyFormatter.formatWithContext(context, goal.currentAmount)} / ${CurrencyFormatter.formatWithContext(context, goal.targetAmount)}',
+                style: TextStyle(
+                  color: goal.isCompleted ? Colors.green : Colors.grey[600],
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: (goal.currentAmount / goal.targetAmount).clamp(0.0, 1.0),
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  goal.isCompleted ? Colors.green : theme.colorScheme.primary,
+                ),
+                minHeight: 6,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                goal.isCompleted
+                    ? 'Goal completed!'
+                    : '${progress.toStringAsFixed(1)}% complete',
+                style: TextStyle(
+                  color: goal.isCompleted ? Colors.green : Colors.grey[600],
+                  fontSize: 12,
+                  fontWeight:
+                      goal.isCompleted ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailsActionButtons(
+    BuildContext context,
+    Transaction transaction,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.edit),
+          label: const Text('Edit'),
+          onPressed: () {
+            Navigator.pop(context);
+            UIHelpers.showTransactionForm(
+              context,
+              transaction.type,
+              existingTransaction: transaction,
+            );
+          },
+        ),
+        FilledButton.tonalIcon(
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Delete'),
+          onPressed: () async {
+            Navigator.pop(context);
+            _deleteTransaction(transaction, context);
+          },
+        ),
+      ],
     );
   }
 
@@ -1047,7 +1073,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                   MaterialPageRoute(
                       builder: (context) => const BillsScreen()),
                 ),
-                child: Text(AppStrings.kSeeAll),
+                child: const Text(AppStrings.kSeeAll),
               ),
             ],
           ),
@@ -1723,7 +1749,7 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
                   MaterialPageRoute(
                       builder: (context) => const InvestmentsScreen()),
                 ),
-                child: Text(AppStrings.kSeeAll),
+                child: const Text(AppStrings.kSeeAll),
               ),
             ],
           ),
@@ -1887,6 +1913,62 @@ class _HomeScreenDashboardState extends State<HomeScreenDashboard> {
       final success = await financeProvider.deleteTransaction(transaction);
 
       // Check if state is still mounted before continuing
+      if (!mounted) return;
+
+      scaffoldMessenger.clearSnackBars();
+      if (success) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('${transaction.title} deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete ${transaction.title}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      scaffoldMessenger.clearSnackBars();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _deleteTransactionWithRefs(
+    Transaction transaction,
+    ScaffoldMessengerState scaffoldMessenger,
+    FinanceProvider financeProvider,
+  ) async {
+    if (!mounted) return;
+
+    scaffoldMessenger.showSnackBar(
+      const SnackBar(content: Text('Deleting transaction...')),
+    );
+
+    try {
+      if (transaction.id == null || transaction.id!.isEmpty) {
+        scaffoldMessenger.clearSnackBars();
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+              content: Text('Cannot delete: Invalid transaction ID')),
+        );
+        return;
+      }
+
+      debugPrint(
+          'Deleting transaction: ${transaction.id} - ${transaction.title}');
+
+      final success = await financeProvider.deleteTransaction(transaction);
+
       if (!mounted) return;
 
       scaffoldMessenger.clearSnackBars();

@@ -11,6 +11,8 @@ import 'package:wealth_wise/services/auth_service.dart';
 const bool useDemo = false;
 
 class AuthProvider with ChangeNotifier {
+  static const _kEmailAlreadyRegistered =
+      'This email is already registered. Please sign in instead.';
   final _logger = Logger('AuthProvider');
   final firebase_auth.FirebaseAuth _auth = firebase_auth.FirebaseAuth.instance;
   final DatabaseService _databaseService = DatabaseService();
@@ -370,18 +372,7 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Normalize the auth provider string
-      String normalizedProvider = 'password';
-      if (authProvider != null) {
-        if (authProvider == 'google.com' || authProvider == 'google') {
-          normalizedProvider = 'google';
-        } else if (authProvider == 'facebook.com' ||
-            authProvider == 'facebook') {
-          normalizedProvider = 'facebook';
-        } else {
-          normalizedProvider = authProvider;
-        }
-      }
+      final normalizedProvider = _normalizeAuthProvider(authProvider);
 
       _logger.fine(
           "Auth provider normalized from '$authProvider' to '$normalizedProvider'");
@@ -389,120 +380,139 @@ class AuthProvider with ChangeNotifier {
       // Check if the user is already authenticated
       if (_auth.currentUser != null && _auth.currentUser!.email == email) {
         _logger.fine("User already signed in with correct account");
-        _isLoading = false;
-        notifyListeners();
-        return true;
+        return _finishTokenSignIn(true);
       }
 
       _logger.fine(
           "Attempting to sign in with biometric auth: $email (provider: $normalizedProvider)");
 
       // APPROACH 1: If we have a password for email/password, use it
-      if (normalizedProvider == 'password' &&
-          password != null &&
-          password.isNotEmpty &&
-          password != '##TOKEN_BASED_AUTH##') {
-        _logger.fine("Using stored password for email/password authentication");
-        try {
-          final userCredential = await _auth.signInWithEmailAndPassword(
-            email: email,
-            password: password,
-          );
-
-          if (userCredential.user != null) {
-            _logger.fine("Successfully signed in with stored email/password");
-            _isLoading = false;
-            notifyListeners();
-            return true;
-          }
-        } catch (credentialError) {
-          _logger.fine(
-              "Error signing in with stored credentials: $credentialError");
-          _error =
-              "Invalid email or password. Please try again with your regular login.";
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
+      if (_canUseStoredPassword(normalizedProvider, password)) {
+        return _signInWithStoredPassword(email, password!);
       }
 
       // APPROACH 2: Try provider-specific authentication
-      if (normalizedProvider == 'google') {
-        _logger.fine("Attempting Google authentication for biometric login");
-        try {
-          // First try silent mode
-          final success = await signInWithGoogle(silent: true);
-          if (success) {
-            _logger.fine("Successfully signed in with Google silently");
-            _isLoading = false;
-            notifyListeners();
-            return true;
-          } else {
-            // If silent mode failed, try regular sign-in
-            _logger.fine(
-                "Silent Google sign-in failed, trying regular Google sign-in");
-            final regularSuccess = await signInWithGoogle(silent: false);
-            if (regularSuccess) {
-              _logger.fine("Successfully signed in with regular Google sign-in");
-              _isLoading = false;
-              notifyListeners();
-              return true;
-            }
-          }
-        } catch (providerError) {
-          _logger.fine("Error with Google authentication: $providerError");
-          _error =
-              "Google authentication failed. Please try again with your regular login.";
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-      } else if (normalizedProvider == 'facebook') {
-        _logger.fine("Attempting Facebook authentication for biometric login");
-        try {
-          final success = await signInWithFacebook();
-          if (success) {
-            _logger.fine("Successfully signed in with Facebook");
-            _isLoading = false;
-            notifyListeners();
-            return true;
-          }
-        } catch (providerError) {
-          _logger.fine("Error with Facebook authentication: $providerError");
-          _error =
-              "Facebook authentication failed. Please try again with your regular login.";
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-      }
+      final providerResult = await _tryProviderSignIn(normalizedProvider);
+      if (providerResult != null) return providerResult;
 
       // APPROACH 3: For demo purposes only
-      if (useDemo) {
-        _logger.fine("Using demo mode for biometric login");
-        try {
-          await _auth.signInAnonymously();
-          _logger.fine("Demo auth successful (anonymous)");
-          _isLoading = false;
-          notifyListeners();
-          return true;
-        } catch (demoError) {
-          _logger.fine("Demo auth failed: $demoError");
-        }
-      }
+      if (await _tryDemoSignIn()) return true;
 
       // All authentication methods failed
       _error =
           "Biometric login failed. Please sign in with your regular method.";
       _logger.fine(
           "All authentication methods failed for provider: $normalizedProvider");
-      _isLoading = false;
-      notifyListeners();
-      return false;
+      return _finishTokenSignIn(false);
     } catch (e) {
       _handleError(e);
       return false;
     }
+  }
+
+  String _normalizeAuthProvider(String? authProvider) {
+    if (authProvider == null) return 'password';
+    if (authProvider == 'google.com' || authProvider == 'google') return 'google';
+    if (authProvider == 'facebook.com' || authProvider == 'facebook') return 'facebook';
+    return authProvider;
+  }
+
+  bool _canUseStoredPassword(String normalizedProvider, String? password) {
+    return normalizedProvider == 'password' &&
+        password != null &&
+        password.isNotEmpty &&
+        password != '##TOKEN_BASED_AUTH##';
+  }
+
+  Future<bool> _signInWithStoredPassword(String email, String password) async {
+    _logger.fine("Using stored password for email/password authentication");
+    try {
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      if (userCredential.user != null) {
+        _logger.fine("Successfully signed in with stored email/password");
+        return _finishTokenSignIn(true);
+      }
+    } catch (credentialError) {
+      _logger.fine(
+          "Error signing in with stored credentials: $credentialError");
+      _error =
+          "Invalid email or password. Please try again with your regular login.";
+    }
+    return _finishTokenSignIn(false);
+  }
+
+  Future<bool?> _tryProviderSignIn(String normalizedProvider) async {
+    if (normalizedProvider == 'google') {
+      return _tryGoogleSignIn();
+    }
+    if (normalizedProvider == 'facebook') {
+      return _tryFacebookSignIn();
+    }
+    return null;
+  }
+
+  Future<bool> _tryGoogleSignIn() async {
+    _logger.fine("Attempting Google authentication for biometric login");
+    try {
+      final success = await signInWithGoogle(silent: true);
+      if (success) {
+        _logger.fine("Successfully signed in with Google silently");
+        return _finishTokenSignIn(true);
+      }
+      _logger.fine("Silent Google sign-in failed, trying regular Google sign-in");
+      final regularSuccess = await signInWithGoogle(silent: false);
+      if (regularSuccess) {
+        _logger.fine("Successfully signed in with regular Google sign-in");
+        return _finishTokenSignIn(true);
+      }
+    } catch (providerError) {
+      _logger.fine("Error with Google authentication: $providerError");
+      _error =
+          "Google authentication failed. Please try again with your regular login.";
+      return _finishTokenSignIn(false);
+    }
+    return _finishTokenSignIn(false);
+  }
+
+  Future<bool> _tryFacebookSignIn() async {
+    _logger.fine("Attempting Facebook authentication for biometric login");
+    try {
+      final success = await signInWithFacebook();
+      if (success) {
+        _logger.fine("Successfully signed in with Facebook");
+        return _finishTokenSignIn(true);
+      }
+    } catch (providerError) {
+      _logger.fine("Error with Facebook authentication: $providerError");
+      _error =
+          "Facebook authentication failed. Please try again with your regular login.";
+      return _finishTokenSignIn(false);
+    }
+    return _finishTokenSignIn(false);
+  }
+
+  Future<bool> _tryDemoSignIn() async {
+    if (!useDemo) return false;
+    _logger.fine("Using demo mode for biometric login");
+    try {
+      await _auth.signInAnonymously();
+      _logger.fine("Demo auth successful (anonymous)");
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (demoError) {
+      _logger.fine("Demo auth failed: $demoError");
+      return false;
+    }
+  }
+
+  bool _finishTokenSignIn(bool success) {
+    _isLoading = false;
+    notifyListeners();
+    return success;
   }
 
   // Sign up with Google
@@ -523,7 +533,7 @@ class AuthProvider with ChangeNotifier {
       if (userCredential.additionalUserInfo?.isNewUser == false) {
         // This is an existing account, not a new user
         _logger.fine("Google auth - Existing account detected, signing out");
-        _error = 'This email is already registered. Please sign in instead.';
+        _error = _kEmailAlreadyRegistered;
         _isLoading = false;
         notifyListeners();
 
@@ -582,7 +592,7 @@ class AuthProvider with ChangeNotifier {
       if (userCredential.additionalUserInfo?.isNewUser == false) {
         // This is an existing account, not a new user
         _logger.fine("Facebook auth - Existing account detected, signing out");
-        _error = 'This email is already registered. Please sign in instead.';
+        _error = _kEmailAlreadyRegistered;
         _isLoading = false;
         notifyListeners();
 
@@ -624,7 +634,7 @@ class AuthProvider with ChangeNotifier {
           _error = 'Incorrect password. Please try again.';
           break;
         case 'email-already-in-use':
-          _error = 'This email is already registered. Please sign in instead.';
+          _error = _kEmailAlreadyRegistered;
           break;
         case 'weak-password':
           _error = 'The password is too weak.';

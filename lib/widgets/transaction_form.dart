@@ -276,25 +276,7 @@ class _TransactionFormState extends State<TransactionForm> {
         return;
       }
 
-      final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
-
-      // Enhanced logging for debugging
-      logger.fine('===== TRANSACTION SAVE DETAILS =====');
-      logger.fine('Title: ${_titleController.text.trim()}');
-      logger.fine('Amount: ${_amountController.text}');
-      logger.fine('Type: $_selectedType');
-      logger.fine('Category: $_selectedCategory');
-      logger.fine('Save to goal: $_saveToSavingsGoal');
-
-      if (selectedGoal != null) {
-        logger.fine('Selected goal for contribution:');
-        logger.fine('- Title: ${selectedGoal.title}');
-        logger.fine('- ID: ${selectedGoal.id}');
-        logger.fine('- Current Amount: ${selectedGoal.currentAmount}');
-        logger.fine('- Target Amount: ${selectedGoal.targetAmount}');
-      } else {
-        logger.fine('No goal selected for this transaction');
-      }
+      _logTransactionSaveDetails();
 
       final transaction = _buildTransaction(userId);
       logger.fine('Transaction object goal ID: ${transaction.goalId}');
@@ -305,30 +287,54 @@ class _TransactionFormState extends State<TransactionForm> {
       final success =
           await _handleGoalContribution(financeProvider, transaction);
 
-      if (success) {
-        if (mounted && widget.onComplete != null) {
-          widget.onComplete!(true);
-        }
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      } else {
-        final error = financeProvider.error ?? 'Failed to save transaction';
-        _showError(error);
-        if (mounted && widget.onComplete != null) {
-          widget.onComplete!(false);
-        }
-      }
+      _handleSaveResult(success, financeProvider);
     } catch (e) {
       logger.fine('Error saving transaction: $e');
       _showError(e.toString());
-      if (mounted && widget.onComplete != null) {
-        widget.onComplete!(false);
-      }
+      _notifyComplete(false);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  void _logTransactionSaveDetails() {
+    final selectedGoal = _saveToSavingsGoal ? _selectedSavingGoal : null;
+    logger.fine('===== TRANSACTION SAVE DETAILS =====');
+    logger.fine('Title: ${_titleController.text.trim()}');
+    logger.fine('Amount: ${_amountController.text}');
+    logger.fine('Type: $_selectedType');
+    logger.fine('Category: $_selectedCategory');
+    logger.fine('Save to goal: $_saveToSavingsGoal');
+
+    if (selectedGoal != null) {
+      logger.fine('Selected goal for contribution:');
+      logger.fine('- Title: ${selectedGoal.title}');
+      logger.fine('- ID: ${selectedGoal.id}');
+      logger.fine('- Current Amount: ${selectedGoal.currentAmount}');
+      logger.fine('- Target Amount: ${selectedGoal.targetAmount}');
+    } else {
+      logger.fine('No goal selected for this transaction');
+    }
+  }
+
+  void _handleSaveResult(bool success, FinanceProvider financeProvider) {
+    if (success) {
+      _notifyComplete(true);
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } else {
+      final error = financeProvider.error ?? 'Failed to save transaction';
+      _showError(error);
+      _notifyComplete(false);
+    }
+  }
+
+  void _notifyComplete(bool success) {
+    if (mounted && widget.onComplete != null) {
+      widget.onComplete!(success);
     }
   }
 
@@ -874,6 +880,56 @@ class _TransactionFormState extends State<TransactionForm> {
     );
   }
 
+  List<Widget> _buildAppBarActions(
+      List<SavingGoal> savingGoals, FinanceProvider financeProvider) {
+    if (_selectedType != TransactionType.income ||
+        savingGoals.isEmpty ||
+        widget.transaction != null) {
+      return [];
+    }
+
+    return [
+      TextButton.icon(
+        onPressed: () => _onSavingGoalActionPressed(financeProvider, savingGoals),
+        icon: const Icon(Icons.savings, size: 18),
+        label: const Text('Saving Goal'),
+      ),
+    ];
+  }
+
+  Future<void> _onSavingGoalActionPressed(
+      FinanceProvider financeProvider, List<SavingGoal> savingGoals) async {
+    final selectedGoal = await UIHelpers.showSavingGoalSelector(
+      context,
+      savingGoals,
+    );
+
+    if (selectedGoal == null || !mounted) return;
+
+    setState(() {
+      _titleController.text = 'Contribution to ${selectedGoal.title}';
+      _selectedCategory = _findInvestmentCategory(financeProvider);
+      _saveToSavingsGoal = true;
+      _selectedSavingGoal = selectedGoal;
+    });
+  }
+
+  String _findInvestmentCategory(FinanceProvider financeProvider) {
+    final incomeCategories = financeProvider.categories
+        .where((c) => c.type == CategoryType.income)
+        .toList();
+
+    if (incomeCategories.isEmpty) return 'Investments';
+
+    final investmentCategory = incomeCategories.firstWhere(
+      (c) =>
+          c.name.toLowerCase().contains('invest') ||
+          c.name.toLowerCase().contains('saving'),
+      orElse: () => incomeCategories.first,
+    );
+    return investmentCategory.name;
+  }
+
   Widget _buildSubmitButton() {
     return SizedBox(
       width: double.infinity,
@@ -915,48 +971,7 @@ class _TransactionFormState extends State<TransactionForm> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(_appBarTitle()),
-        actions: [
-          if (_selectedType == TransactionType.income &&
-              savingGoals.isNotEmpty &&
-              widget.transaction == null)
-            TextButton.icon(
-              onPressed: () async {
-                final selectedGoal = await UIHelpers.showSavingGoalSelector(
-                  context,
-                  savingGoals,
-                );
-
-                if (selectedGoal != null && mounted) {
-                  setState(() {
-                    _titleController.text =
-                        'Contribution to ${selectedGoal.title}';
-                    // Find a suitable income category
-                    final incomeCategories = financeProvider.categories
-                        .where((c) => c.type == CategoryType.income)
-                        .toList();
-
-                    if (incomeCategories.isNotEmpty) {
-                      // Try to find an 'Investments' or similar category
-                      final investmentCategory = incomeCategories.firstWhere(
-                        (c) =>
-                            c.name.toLowerCase().contains('invest') ||
-                            c.name.toLowerCase().contains('saving'),
-                        orElse: () => incomeCategories.first,
-                      );
-                      _selectedCategory = investmentCategory.name;
-                    } else {
-                      _selectedCategory = 'Investments';
-                    }
-
-                    _saveToSavingsGoal = true;
-                    _selectedSavingGoal = selectedGoal;
-                  });
-                }
-              },
-              icon: const Icon(Icons.savings, size: 18),
-              label: const Text('Saving Goal'),
-            ),
-        ],
+        actions: _buildAppBarActions(savingGoals, financeProvider),
       ),
       body: SafeArea(
         child: SingleChildScrollView(

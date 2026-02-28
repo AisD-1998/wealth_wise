@@ -70,41 +70,38 @@ class RecentTransactionsList extends StatelessWidget {
     );
   }
 
+  /// Map a category name to its corresponding icon, falling back to a
+  /// directional arrow based on transaction type.
+  static IconData _iconForCategory(String? category, bool isIncome) {
+    const categoryIcons = <String, IconData>{
+      'Food & Groceries': Icons.restaurant,
+      'Food': Icons.restaurant,
+      'Transport': Icons.directions_car,
+      'Entertainment': Icons.movie,
+      'Health': Icons.medical_services,
+      'Utilities': Icons.power,
+      'Housing': Icons.home,
+      'Education': Icons.school,
+      'Shopping': Icons.shopping_cart,
+    };
+
+    if (category != null && categoryIcons.containsKey(category)) {
+      return categoryIcons[category]!;
+    }
+    return isIncome ? Icons.arrow_upward : Icons.arrow_downward;
+  }
+
   Widget _buildTransactionItem(BuildContext context, Transaction transaction) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    // Determine color and icon based on transaction type
     final isIncome = transaction.type == TransactionType.income;
     final iconColor = isIncome ? Colors.green : Colors.red;
     final amountColor = isIncome ? Colors.green : Colors.red;
     final backgroundIconColor = isIncome
         ? Colors.green.withValues(alpha: 26)
         : Colors.red.withValues(alpha: 26);
-
-    // Get icon based on category or use default for the transaction type
-    IconData iconData;
-    if (transaction.category == 'Food & Groceries' ||
-        transaction.category == 'Food') {
-      iconData = Icons.restaurant;
-    } else if (transaction.category == 'Transport') {
-      iconData = Icons.directions_car;
-    } else if (transaction.category == 'Entertainment') {
-      iconData = Icons.movie;
-    } else if (transaction.category == 'Health') {
-      iconData = Icons.medical_services;
-    } else if (transaction.category == 'Utilities') {
-      iconData = Icons.power;
-    } else if (transaction.category == 'Housing') {
-      iconData = Icons.home;
-    } else if (transaction.category == 'Education') {
-      iconData = Icons.school;
-    } else if (transaction.category == 'Shopping') {
-      iconData = Icons.shopping_cart;
-    } else {
-      // Default icons based on type
-      iconData = isIncome ? Icons.arrow_upward : Icons.arrow_downward;
-    }
+    final iconData = _iconForCategory(transaction.category, isIncome);
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(
